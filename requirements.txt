@@ -1,0 +1,11 @@
+# ROS2 packages (installed via system packages, not pip):
+# - rclpy (from ros-humble-rclpy)
+# - sensor_msgs (from ros-humble-sensor-msgs)
+# - cv_bridge (from ros-humble-cv-bridge)
+
+# Python packages that may need to be installed via pip:
+numpy>=1.20.0
+# opencv-python>=4.5.0  # Usually available with ROS2 cv_bridge
+
+# Note: Make sure to source ROS2 environment:
+# source /opt/ros/humble/setup.bash
