@@ -8,7 +8,9 @@ A Python utility to record ROS2 camera topics to video files using either OpenCV
 - Support for both OpenCV and FFmpeg backends
 - Configurable FPS and video codecs
 - Automatic timestamp-based file naming
+- **Segmented recording** - automatically split videos into timed segments
 - Real-time frame counting and logging
+- Preset durations for testing (10s), 10 minutes, or 1 hour segments
 
 ## Requirements
 
@@ -70,6 +72,12 @@ python3 camera_recorder.py --ffmpeg --fps 60
 # Specify video codec (OpenCV only)
 python3 camera_recorder.py --codec h264
 
+# Segmented recording examples
+python3 camera_recorder.py --segment-preset test    # 10-second segments for testing
+python3 camera_recorder.py --segment-preset 10min   # 10-minute segments
+python3 camera_recorder.py --segment-preset 1hour   # 1-hour segments
+python3 camera_recorder.py --segment 30             # Custom 30-second segments
+
 # Use the shell script
 ./record_camera.sh /camera/color/image_raw my_recording.mp4
 ```
@@ -81,6 +89,8 @@ python3 camera_recorder.py --codec h264
 - `--fps, -f`: Output video FPS (default: 30)
 - `--ffmpeg`: Use FFmpeg instead of OpenCV for encoding
 - `--codec, -c`: Video codec - mp4v, xvid, h264 (OpenCV only, default: mp4v)
+- `--segment, -s`: Segment duration in seconds (e.g., 10, 600, 3600)
+- `--segment-preset`: Preset durations - test (10s), 10min (600s), 1hour (3600s)
 
 ## Backends
 
@@ -96,6 +106,32 @@ python3 camera_recorder.py --codec h264
 - Wider compatibility
 - Slightly higher CPU usage
 - Requires FFmpeg installation
+
+## Segmented Recording
+
+The recorder can automatically split recordings into multiple video files based on time duration. This is useful for:
+
+- **Testing**: Short 10-second segments to verify functionality
+- **Long recordings**: Manageable file sizes (10-minute or 1-hour segments)
+- **Continuous recording**: Prevents single large files that might be corrupted
+- **Storage management**: Easier to handle multiple smaller files
+
+### Segment File Naming
+
+Segmented files are automatically named with sequential numbers:
+```
+camera_recording_20240731_110330_seg001.mp4
+camera_recording_20240731_110330_seg002.mp4
+camera_recording_20240731_110330_seg003.mp4
+...
+```
+
+### Segment Switching
+
+- Seamless transition between segments (no frame loss)
+- Each segment is properly closed before starting the next
+- Timer-based switching ensures consistent segment durations
+- Recording can be stopped at any time with Ctrl+C
 
 ## Example Output
 
