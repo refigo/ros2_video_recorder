@@ -3,7 +3,7 @@
 Last updated: 2026-02-03
 
 ## Scope
-- Provide a 24/7 CCTV-style recorder producing MP4 segments plus synchronized metadata for operations monitoring.
+- Provide a 24/7 continuous rolling recorder producing MP4 segments plus synchronized metadata for operations monitoring.
 - Guarantee downstream readiness for lerobot/VLA by storing timestamps, joint data links, and manifest files alongside each video.
 
 ## Core Behavior

@@ -8,7 +8,7 @@ Last updated: 2026-02-03
 
 ## Operational Requirements
 - **Video Segmentation & Upload**: keep local files in manageable segments (e.g., 10 min or 1 h). After each hour of recording completes, automatically upload all segments for that window to a managed Google Drive (or similar) location. Only delete the local copies once the upload (checksum or remote listing) confirms success.
-- **CCTV-style Continuity**: operate the recorder like a 24-hour CCTV system—segments roll continuously using ISO-like filenames (e.g., `${ROBOT_ID}_20260203T130000+0900_video.mp4`) so chronological sorting matches real time (timezone fixed to KST, UTC+9). `${ROBOT_ID}` comes from each robot's environment variables or provisioning metadata.
+- **Continuous Rolling Archive**: operate the recorder like a 24-hour security DVR—segments roll continuously using ISO-like filenames (e.g., `${ROBOT_ID}_20260203T130000+0900_video.mp4`) so chronological sorting matches real time (timezone fixed to KST, UTC+9). `${ROBOT_ID}` comes from each robot's environment variables or provisioning metadata.
 - **Discoverability**: standardize the directory schema so anyone can locate a clip by answering three questions (Which robot? Which day? Which run?).
   - Root: `gs://<fleet-bucket>/recordings/`
   - Robot: `robot_<id>/` (e.g., `robot_A07/`)
