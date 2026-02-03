@@ -47,9 +47,11 @@ class CameraRecorder(Node):
         # Video writer objects
         self.video_writer = None
         self.ffmpeg_process = None
+        self.ffmpeg_thread = None
         self.frame_queue = queue.Queue()
         self.recording = False
         self.frame_count = 0
+        self.writer_lock = threading.Lock()
         
         # Segmentation variables
         self.segment_number = 1
@@ -86,10 +88,12 @@ class CameraRecorder(Node):
                 
             # Record frame
             if self.recording:
-                if self.use_ffmpeg:
-                    self.frame_queue.put(cv_image)
-                else:
-                    self.video_writer.write(cv_image)
+                with self.writer_lock:
+                    if self.use_ffmpeg:
+                        self.frame_queue.put(cv_image)
+                    else:
+                        if self.video_writer:
+                            self.video_writer.write(cv_image)
                     
                 self.frame_count += 1
                 if self.frame_count % 30 == 0:  # Log every 30 frames
@@ -165,10 +169,11 @@ class CameraRecorder(Node):
                 stderr=subprocess.PIPE
             )
             
-            # Start thread to feed frames to FFmpeg
-            self.ffmpeg_thread = threading.Thread(target=self.ffmpeg_writer_thread)
-            self.ffmpeg_thread.daemon = True
-            self.ffmpeg_thread.start()
+            # Start thread to feed frames to FFmpeg (only once)
+            if not self.ffmpeg_thread or not self.ffmpeg_thread.is_alive():
+                self.ffmpeg_thread = threading.Thread(target=self.ffmpeg_writer_thread)
+                self.ffmpeg_thread.daemon = True
+                self.ffmpeg_thread.start()
             
         except Exception as e:
             raise RuntimeError(f"Failed to start FFmpeg: {str(e)}")
@@ -186,6 +191,20 @@ class CameraRecorder(Node):
             except Exception as e:
                 self.get_logger().error(f"Error writing frame to FFmpeg: {str(e)}")
                 break
+
+    def _release_current_writer_locked(self):
+        """Release current writer resources. Caller must hold writer_lock."""
+        if self.use_ffmpeg:
+            while not self.frame_queue.empty():
+                pass
+            if self.ffmpeg_process:
+                self.ffmpeg_process.stdin.close()
+                self.ffmpeg_process.wait()
+                self.ffmpeg_process = None
+        else:
+            if self.video_writer:
+                self.video_writer.release()
+                self.video_writer = None
     
     def start_segment_timer(self):
         """Start timer for segment switching"""
@@ -201,53 +220,43 @@ class CameraRecorder(Node):
         if not self.recording:
             return
             
-        self.get_logger().info(f"Switching to segment {self.segment_number + 1}...")
-        
-        # Close current segment
-        self.close_current_segment()
-        
-        # Prepare next segment
-        self.segment_number += 1
-        self.total_segments += 1
-        
-        # Generate new filename
-        if hasattr(self, 'base_filename'):
-            ext = os.path.splitext(self.output_file)[1]
-            self.output_file = f"{self.base_filename}_seg{self.segment_number:03d}{ext}"
-        
-        # Reinitialize recording for new segment
-        if self.use_ffmpeg:
-            self.initialize_ffmpeg()
-        else:
-            self.initialize_opencv()
-        
-        self.segment_start_time = datetime.now()
-        self.frame_count = 0  # Reset frame count for new segment
-        
+        next_segment = self.segment_number + 1
+        self.get_logger().info(f"Switching to segment {next_segment}...")
+
+        with self.writer_lock:
+            completed_segment = self.segment_number
+            completed_file = self.output_file
+            segment_duration = datetime.now() - self.segment_start_time
+
+            # Close current segment
+            self._release_current_writer_locked()
+
+            # Prepare next segment
+            self.segment_number += 1
+            self.total_segments += 1
+
+            if hasattr(self, 'base_filename'):
+                ext = os.path.splitext(completed_file)[1]
+                self.output_file = f"{self.base_filename}_seg{self.segment_number:03d}{ext}"
+
+            # Reinitialize recording for new segment
+            if self.use_ffmpeg:
+                self.initialize_ffmpeg()
+            else:
+                self.initialize_opencv()
+
+            self.segment_start_time = datetime.now()
+            self.frame_count = 0  # Reset frame count for new segment
+            new_segment_file = self.output_file
+
         # Start timer for next segment
         self.start_segment_timer()
-        
-        self.get_logger().info(f"Started recording segment {self.segment_number}: {self.output_file}")
+
+        self.get_logger().info(
+            f"Segment {completed_segment} completed: {completed_file} ({segment_duration.total_seconds():.1f}s)"
+        )
+        self.get_logger().info(f"Started recording segment {self.segment_number}: {new_segment_file}")
     
-    def close_current_segment(self):
-        """Close current video segment without stopping recording"""
-        if self.use_ffmpeg:
-            # Wait for queue to empty
-            while not self.frame_queue.empty():
-                pass
-                
-            if self.ffmpeg_process:
-                self.ffmpeg_process.stdin.close()
-                self.ffmpeg_process.wait()
-                self.ffmpeg_process = None
-        else:
-            if self.video_writer:
-                self.video_writer.release()
-                self.video_writer = None
-        
-        segment_duration = datetime.now() - self.segment_start_time
-        self.get_logger().info(f"Segment {self.segment_number} completed: {self.output_file} ({segment_duration.total_seconds():.1f}s)")
-                
     def stop_recording(self):
         """Stop recording and cleanup resources"""
         if not self.recording:
@@ -262,20 +271,8 @@ class CameraRecorder(Node):
         
         self.get_logger().info(f"Stopping recording... Total frames in current segment: {self.frame_count}")
         
-        if self.use_ffmpeg:
-            # Wait for queue to empty
-            while not self.frame_queue.empty():
-                pass
-                
-            if self.ffmpeg_process:
-                self.ffmpeg_process.stdin.close()
-                self.ffmpeg_process.wait()
-                self.ffmpeg_process = None
-                
-        else:
-            if self.video_writer:
-                self.video_writer.release()
-                self.video_writer = None
+        with self.writer_lock:
+            self._release_current_writer_locked()
         
         # Print recording summary
         if self.segment_duration:
