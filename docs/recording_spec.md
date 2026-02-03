@@ -8,7 +8,7 @@ Last updated: 2026-02-03
 
 ## Core Behavior
 1. **Continuous Segments**
-   - Default cadence: 10 min or 1 h segments depending on deployment profile.
+   - Default cadence: 10 min or 1 h segments depending on deployment profile; add a 10 s preset for QA/diagnostics so engineers can spin up short trials without consuming disk.
 - Naming: `${ROBOT_ID}_<YYYYMMDD>T<HHMMSS>+0900_<artifact>.ext` (KST, UTC+9) where `${ROBOT_ID}` is injected via environment/provisioning on each robot (e.g., `ROBOT_ID=robotA07`). Artifacts: `video`, `timestamps`, `events`, `metadata`, `joints`.
    - Recorder ensures chronological ordering by simply sorting filenames.
 2. **Metadata Artifacts**
