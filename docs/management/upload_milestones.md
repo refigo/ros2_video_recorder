@@ -11,44 +11,46 @@ Last updated: 2026-02-25
 
 ### Implemented
 - Video recording with 10-min segmented output
+- **FFmpeg H.264 녹화** (`--ffmpeg`, libx264 + yuv420p) — Drive 브라우저 재생 호환
 - Per-segment timestamp sidecars (`*_timestamps.csv`, `*_timestamps.srt`)
+- **업로드 시 SRT 자막 임베딩** (mov_text, `-c:v copy` 무손상) — Drive CC 자막 지원
 - `uploader.py`: OAuth + Service Account 인증, 세션 업로드, 파일 업로드, MD5 검증, 중복 skip, 로컬 삭제
+- **폴더 구조**: `recording_datas/product/branch_id/YYYY/MM/DD/HH-mm/` (10분 정각 정렬)
 - `scripts/generate_oauth_token.py`: OAuth 토큰 생성 스크립트
 
 ### Not Yet Done
-- 폴더 구조 변경: `product/branch_id/YYYY/MM/DD/HH-mm/` 형식
-- 10분 정각 정렬 (wall-clock aligned segments)
+- 10분 정각 정렬 녹화 (wall-clock aligned segments)
 - 자동 업로드 스케줄링 (segment 완료 시 자동 trigger)
+- LeRobot 호환 인코딩 옵션 (GOP=2) → `docs/management/backlog.md` 참조
 
 ---
 
 ## Milestone Plan
 
-### M0: OAuth 테스트 환경 구축 ✅ → 실행 대기
+### M0: OAuth 테스트 환경 구축 ✅ 완료 (2026-02-25)
 **Goal:** 개인 Google Drive에 업로드 테스트 성공
 
 **Tasks:**
-- [ ] Google Cloud Console에서 OAuth 2.0 Client ID 생성 (Desktop app)
-- [ ] Google Drive API 활성화
-- [ ] `client_secrets.json` → `keys/` 에 저장
-- [ ] `generate_oauth_token.py`로 토큰 생성
-- [ ] 테스트 세션으로 업로드 실행 확인
+- [x] Google Cloud Console에서 OAuth 2.0 Client ID 생성 (Desktop app)
+- [x] Google Drive API 활성화
+- [x] `client_secrets.json` → `keys/` 에 저장
+- [x] `generate_oauth_token.py`로 토큰 생성
+- [x] 테스트 세션으로 업로드 실행 확인
+- [x] H.264 녹화 + 자막 임베딩 + Drive 재생/CC 검증
 
-**Acceptance:** `uploader.py --auth-mode oauth`로 개인 Drive에 파일 업로드 성공
+**Acceptance:** ✅ Drive에서 H.264 영상 재생 + CC 자막 활성화 확인
 
 ---
 
-### M1: 폴더 구조 변경
+### M1: 폴더 구조 변경 ✅ 완료 (2026-02-25)
 **Goal:** `recording_datas/product/branch_id/YYYY/MM/DD/HH-mm/` 경로로 업로드
 
 **Tasks:**
-- [ ] `uploader.py`의 `upload_session()` path 구성을 새 구조로 변경
-  - 기존: `robot_<id>/YYYY/MM/DD/shift_operator_HHMMSS/`
-  - 변경: `recording_datas/product/branch_id/YYYY/MM/DD/HH-mm/`
-- [ ] `PRODUCT_NAME`, `BRANCH_ID` 환경변수/CLI 인자 추가
-- [ ] 10분 단위 폴더명 생성 로직 (분을 0/10/20/30/40/50으로 내림)
+- [x] `uploader.py`의 `upload_session()` path 구성을 새 구조로 변경
+- [x] `PRODUCT_NAME`, `BRANCH_ID` 환경변수/CLI 인자 추가
+- [x] 10분 단위 폴더명 생성 로직 (분을 0/10/20/30/40/50으로 내림)
 
-**Acceptance:** 업로드 시 Drive에 올바른 계층 폴더 자동 생성 확인
+**Acceptance:** ✅ `recording_datas/baris_brew/test_branch/2026/02/25/19-20/` 구조 확인
 
 ---
 
@@ -124,7 +126,7 @@ M0 (OAuth 테스트) → M1 (폴더 구조) → M2 (정각 정렬) → M3 (자�
                                                          → M6 (모니터링)
 ```
 
-**Immediate Next Step:** M0 실행 — Google Cloud Console에서 OAuth 설정 후 개인 Drive 업로드 테스트.
+**Immediate Next Step:** M2 — wall-clock 정각 정렬 세그먼트 구현.
 
 ## Risks / Open Questions
 - Google Drive API 일일 할당량: 기본 10억 쿼리/일이지만 업로드 대역폭 제한 확인 필요
