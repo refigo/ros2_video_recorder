@@ -6,8 +6,11 @@ import logging
 import mimetypes
 import os
 import re
+import shutil
+import subprocess
+import tempfile
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone, timedelta
 from typing import Dict, List, Optional, Tuple
 
@@ -33,9 +36,8 @@ class UploadConfig:
     oauth_console: bool
     root_folder_id: Optional[str]
     shared_drive_id: Optional[str]
-    robot_id: str
-    shift: str
-    operator: str
+    product_name: str
+    branch_id: str
     min_age_seconds: int
     delete_local: bool
     verify_md5: bool
@@ -141,14 +143,93 @@ def parse_session_datetime(session_name: str) -> Optional[datetime]:
 
 
 def collect_session_files(session_dir: str) -> List[str]:
+    """Collect session files, excluding standalone SRT files that have a matching MP4."""
     files = []
+    all_names = set()
     for entry in os.scandir(session_dir):
         if not entry.is_file():
             continue
         if entry.name == "upload_ledger.json":
             continue
+        all_names.add(entry.name)
         files.append(entry.path)
-    return sorted(files)
+
+    # Find SRT files whose matching MP4 exists (they'll be embedded during transcode)
+    skip_srt = set()
+    for name in all_names:
+        if not name.endswith(".srt"):
+            continue
+        # Match: seg001.srt -> seg001.mp4, seg001_timestamps.srt -> seg001.mp4
+        base = name[:-4]  # remove .srt
+        if base.endswith("_timestamps"):
+            base = base[: -len("_timestamps")]
+        mp4_name = base + ".mp4"
+        if mp4_name in all_names:
+            skip_srt.add(name)
+
+    filtered = [f for f in files if os.path.basename(f) not in skip_srt]
+    return sorted(filtered)
+
+
+def find_srt_for_mp4(mp4_path: str) -> Optional[str]:
+    """Find matching SRT subtitle file for an MP4 video."""
+    base = mp4_path[:-4]  # remove .mp4
+    # Try: seg001_timestamps.srt first, then seg001.srt
+    for suffix in ("_timestamps.srt", ".srt"):
+        srt_path = base + suffix
+        if os.path.exists(srt_path):
+            return srt_path
+    return None
+
+
+def transcode_for_drive(mp4_path: str, tmp_dir: str) -> str:
+    """Transcode mp4v to H.264 with embedded SRT subtitle for Google Drive playback.
+
+    Returns path to the transcoded file (in tmp_dir).
+    If the video is already H.264, only embeds subtitles if available.
+    """
+    basename = os.path.basename(mp4_path)
+    out_path = os.path.join(tmp_dir, basename)
+
+    # Check current codec
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name", "-of", "csv=p=0", mp4_path],
+        capture_output=True, text=True,
+    )
+    current_codec = probe.stdout.strip()
+
+    srt_path = find_srt_for_mp4(mp4_path)
+
+    needs_transcode = current_codec != "h264"
+    if not needs_transcode and srt_path is None:
+        return mp4_path  # already H.264 and no subtitles to embed
+
+    cmd = ["ffmpeg", "-y", "-i", mp4_path]
+    if srt_path:
+        cmd += ["-i", srt_path]
+
+    if needs_transcode:
+        cmd += ["-c:v", "libx264", "-preset", "fast", "-crf", "23", "-pix_fmt", "yuv420p"]
+    else:
+        cmd += ["-c:v", "copy"]
+
+    if srt_path:
+        cmd += ["-c:s", "mov_text", "-metadata:s:s:0", "language=kor"]
+
+    cmd += ["-movflags", "+faststart", out_path]
+
+    logging.info("Transcoding: %s (codec=%s, srt=%s)", basename, current_codec, bool(srt_path))
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode != 0:
+        logging.error("FFmpeg failed for %s: %s", basename, result.stderr[-500:] if result.stderr else "")
+        return mp4_path  # fallback: upload original
+
+    logging.info("Transcoded: %s (%d KB -> %d KB)",
+                 basename,
+                 os.path.getsize(mp4_path) // 1024,
+                 os.path.getsize(out_path) // 1024)
+    return out_path
 
 
 def compute_md5(path: str, chunk_size: int = 1024 * 1024) -> str:
@@ -277,13 +358,17 @@ def upload_session(
     if not config.root_folder_id:
         raise ValueError("root_folder_id is required for session uploads")
 
-    session_time = session_dt.strftime("%H%M%S")
+    # Align to 10-min boundary: floor minutes to 0/10/20/30/40/50
+    aligned_minute = (session_dt.minute // 10) * 10
+    time_slot = f"{session_dt.hour:02d}-{aligned_minute:02d}"
     path_parts = [
-        f"robot_{config.robot_id}",
+        "recording_datas",
+        config.product_name,
+        config.branch_id,
         session_dt.strftime("%Y"),
         session_dt.strftime("%m"),
         session_dt.strftime("%d"),
-        f"{config.shift}_{config.operator}_{session_time}",
+        time_slot,
     ]
     target_folder_id = ensure_drive_path(
         service,
@@ -302,47 +387,55 @@ def upload_session(
 
     uploaded = 0
     now = time.time()
-    for local_path in files:
-        age = now - os.path.getmtime(local_path)
-        if config.min_age_seconds and age < config.min_age_seconds:
-            logging.info("Skip (too recent): %s", local_path)
-            continue
+    tmp_dir = tempfile.mkdtemp(prefix="uploader_transcode_")
+    try:
+        for local_path in files:
+            age = now - os.path.getmtime(local_path)
+            if config.min_age_seconds and age < config.min_age_seconds:
+                logging.info("Skip (too recent): %s", local_path)
+                continue
 
-        try:
-            file_id, verified = upload_file_to_folder(
-                service,
-                local_path,
-                target_folder_id,
-                verify_md5=config.verify_md5,
-                dry_run=config.dry_run,
-                shared_drive_id=config.shared_drive_id,
-            )
-            ledger["files"][os.path.basename(local_path)] = {
-                "drive_id": file_id,
-                "verified": verified,
-                "size": os.path.getsize(local_path),
-                "uploaded_at": datetime.now(tz=timezone.utc).isoformat(),
-            }
-            save_ledger(ledger_path, ledger)
-            uploaded += 1
+            try:
+                upload_path = local_path
+                if local_path.endswith(".mp4") and not config.dry_run:
+                    upload_path = transcode_for_drive(local_path, tmp_dir)
 
-            if config.delete_local and verified and not config.dry_run:
-                os.remove(local_path)
-                logging.info("Deleted local: %s", local_path)
-        except HttpError as exc:
-            logging.error("Drive API error for %s: %s", local_path, exc)
-            ledger["files"][os.path.basename(local_path)] = {
-                "error": str(exc),
-                "uploaded_at": datetime.now(tz=timezone.utc).isoformat(),
-            }
-            save_ledger(ledger_path, ledger)
-        except Exception as exc:  # noqa: BLE001
-            logging.error("Upload failed for %s: %s", local_path, exc)
-            ledger["files"][os.path.basename(local_path)] = {
-                "error": str(exc),
-                "uploaded_at": datetime.now(tz=timezone.utc).isoformat(),
-            }
-            save_ledger(ledger_path, ledger)
+                file_id, verified = upload_file_to_folder(
+                    service,
+                    upload_path,
+                    target_folder_id,
+                    verify_md5=config.verify_md5,
+                    dry_run=config.dry_run,
+                    shared_drive_id=config.shared_drive_id,
+                )
+                ledger["files"][os.path.basename(local_path)] = {
+                    "drive_id": file_id,
+                    "verified": verified,
+                    "size": os.path.getsize(local_path),
+                    "uploaded_at": datetime.now(tz=timezone.utc).isoformat(),
+                }
+                save_ledger(ledger_path, ledger)
+                uploaded += 1
+
+                if config.delete_local and verified and not config.dry_run:
+                    os.remove(local_path)
+                    logging.info("Deleted local: %s", local_path)
+            except HttpError as exc:
+                logging.error("Drive API error for %s: %s", local_path, exc)
+                ledger["files"][os.path.basename(local_path)] = {
+                    "error": str(exc),
+                    "uploaded_at": datetime.now(tz=timezone.utc).isoformat(),
+                }
+                save_ledger(ledger_path, ledger)
+            except Exception as exc:  # noqa: BLE001
+                logging.error("Upload failed for %s: %s", local_path, exc)
+                ledger["files"][os.path.basename(local_path)] = {
+                    "error": str(exc),
+                    "uploaded_at": datetime.now(tz=timezone.utc).isoformat(),
+                }
+                save_ledger(ledger_path, ledger)
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return uploaded
 
@@ -386,9 +479,8 @@ def build_config(args: argparse.Namespace) -> UploadConfig:
         oauth_console=args.oauth_console,
         root_folder_id=args.root_folder or os.environ.get("UPLOAD_ROOT_ID"),
         shared_drive_id=args.shared_drive_id or os.environ.get("UPLOAD_SHARED_DRIVE_ID"),
-        robot_id=args.robot_id or os.environ.get("ROBOT_ID", "unknown"),
-        shift=args.shift or os.environ.get("SHIFT", "unknown"),
-        operator=args.operator or os.environ.get("OPERATOR", "unknown"),
+        product_name=args.product_name or os.environ.get("PRODUCT_NAME", "baris_brew"),
+        branch_id=args.branch_id or os.environ.get("BRANCH_ID", "test_branch"),
         min_age_seconds=args.min_age_seconds,
         delete_local=args.delete_local,
         verify_md5=args.verify_md5,
@@ -403,9 +495,8 @@ def main():
     parser.add_argument("--token-path", help="Path to OAuth token cache file")
     parser.add_argument("--root-folder", help="Drive folder ID for recordings root")
     parser.add_argument("--shared-drive-id", help="Shared Drive ID (optional)")
-    parser.add_argument("--robot-id", help="Robot identifier (ROBOT_ID)")
-    parser.add_argument("--shift", help="Shift label (SHIFT)")
-    parser.add_argument("--operator", help="Operator label (OPERATOR)")
+    parser.add_argument("--product-name", help="Product/service name (PRODUCT_NAME, default: baris_brew)")
+    parser.add_argument("--branch-id", help="Branch identifier (BRANCH_ID, default: test_branch)")
     parser.add_argument("--min-age-seconds", type=int, default=30, help="Skip files newer than this many seconds")
     parser.add_argument("--delete-local", action="store_true", help="Delete local files after verified upload")
     parser.add_argument("--verify-md5", action="store_true", help="Verify MD5 checksum after upload")

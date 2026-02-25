@@ -107,7 +107,11 @@ class CameraRecorder(Node):
                 should_log = False
                 with self.writer_lock:
                     if self.use_ffmpeg:
-                        self.frame_queue.put(cv_image)
+                        if self.ffmpeg_process and self.ffmpeg_process.stdin:
+                            try:
+                                self.ffmpeg_process.stdin.write(cv_image.tobytes())
+                            except (OSError, BrokenPipeError):
+                                pass
                     else:
                         if self.video_writer:
                             self.video_writer.write(cv_image)
@@ -134,13 +138,15 @@ class CameraRecorder(Node):
     def initialize_recording(self, first_frame):
         """Initialize video recording with the first frame"""
         self.height, self.width = first_frame.shape[:2]
-        
+
+        # Set recording flag before starting ffmpeg writer thread
+        # so the thread doesn't exit immediately on its loop condition
+        self.recording = True
+
         if self.use_ffmpeg:
             self.initialize_ffmpeg()
         else:
             self.initialize_opencv()
-            
-        self.recording = True
         self.segment_start_time = datetime.now(self.timezone)
         
         # Start segment timer if segmentation is enabled
@@ -187,6 +193,7 @@ class CameraRecorder(Node):
             '-c:v', 'libx264',
             '-preset', 'medium',
             '-crf', '23',
+            '-pix_fmt', 'yuv420p',
             self.output_file
         ]
         
@@ -194,15 +201,9 @@ class CameraRecorder(Node):
             self.ffmpeg_process = subprocess.Popen(
                 ffmpeg_cmd,
                 stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL
             )
-            
-            # Start thread to feed frames to FFmpeg (only once)
-            if not self.ffmpeg_thread or not self.ffmpeg_thread.is_alive():
-                self.ffmpeg_thread = threading.Thread(target=self.ffmpeg_writer_thread)
-                self.ffmpeg_thread.daemon = True
-                self.ffmpeg_thread.start()
             
         except Exception as e:
             raise RuntimeError(f"Failed to start FFmpeg: {str(e)}")
@@ -224,11 +225,16 @@ class CameraRecorder(Node):
     def _release_current_writer_locked(self):
         """Release current writer resources. Caller must hold writer_lock."""
         if self.use_ffmpeg:
-            while not self.frame_queue.empty():
-                pass
             if self.ffmpeg_process:
-                self.ffmpeg_process.stdin.close()
-                self.ffmpeg_process.wait()
+                try:
+                    self.ffmpeg_process.stdin.close()
+                except OSError:
+                    pass
+                try:
+                    self.ffmpeg_process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    self.ffmpeg_process.kill()
+                    self.ffmpeg_process.wait()
                 self.ffmpeg_process = None
         else:
             if self.video_writer:
