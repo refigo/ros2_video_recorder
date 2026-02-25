@@ -10,6 +10,7 @@ Last updated: 2026-02-03
 - `camera_recorder.py`: ROS2 node subscribing to `/camera/color/image_raw`, capable of OpenCV or FFmpeg encoding, segmentation, and timestamp sidecars (CSV/SRT).
 - `test_recorder.py`: mock publisher producing synthetic frames for local verification.
 - Shell helpers (`record_camera.sh`, `test_segmentation.sh`, `setup_env.sh`) for ops-friendly execution and environment validation.
+- `uploader.py`: Google Drive uploader (preview) for session folders and sidecars.
 - Documentation set (`docs/recording_strategy.md`, `docs/recording_spec.md`, changelog entries) describing policies and implementation details.
 
 ## Recording Workflow

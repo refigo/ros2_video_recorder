@@ -82,6 +82,64 @@ python3 camera_recorder.py --segment 30             # Custom 30-second segments
 ./record_camera.sh /camera/color/image_raw my_recording.mp4
 ```
 
+### Google Drive Upload (Preview)
+
+The uploader ships completed session files to Google Drive using a service account.
+
+**Prerequisites**
+- A Google service account JSON key with access to the target Drive folder
+- `GOOGLE_APPLICATION_CREDENTIALS` pointing to the JSON key
+- `UPLOAD_ROOT_ID` set to the Drive folder ID that will contain `robot_<id>/YYYY/MM/DD/...`
+- Optional: `ROBOT_ID`, `SHIFT`, `OPERATOR`
+
+Install uploader dependencies:
+```bash
+pip install -r requirements.txt
+```
+
+**OAuth test mode (local user login)**
+1. Create an OAuth client in Google Cloud Console (type: Desktop app).
+2. Enable Google Drive API for the project.
+3. Download the client secrets JSON.
+4. Run the uploader with `--auth-mode oauth`.
+
+Generate a token on a local machine (recommended if this server has restricted DNS):
+```bash
+python3 scripts/generate_oauth_token.py --client-secrets /path/to/client_secrets.json \
+  --out gdrive_token.json --oob
+```
+
+```bash
+export UPLOAD_ROOT_ID=<drive_folder_id>
+export ROBOT_ID=robotA07
+export SHIFT=day
+export OPERATOR=op1
+
+python3 uploader.py --auth-mode oauth --oauth-client /path/to/client_secrets.json \
+  --token-path gdrive_token.json \
+  --session videos/session_20260205_120000
+```
+
+If you are on a headless machine, add `--oauth-console` to use a copy/paste flow.
+
+Upload a full session directory:
+```bash
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service_account.json
+export UPLOAD_ROOT_ID=<drive_folder_id>
+export UPLOAD_SHARED_DRIVE_ID=<shared_drive_id>  # optional, recommended for service accounts
+export ROBOT_ID=robotA07
+export SHIFT=day
+export OPERATOR=op1
+
+python3 uploader.py --session videos/session_20260205_120000
+```
+
+Upload a single file:
+```bash
+python3 uploader.py --file videos/session_20260205_120000/camera_recording_20260205_120000_seg001.mp4 \
+  --folder <drive_folder_id>
+```
+
 ### Command Line Arguments
 
 - `--topic, -t`: Camera topic name (default: `/camera/color/image_raw`)
