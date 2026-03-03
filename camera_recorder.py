@@ -2,6 +2,7 @@
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import Image
 from cv_bridge import CvBridge
 import cv2
@@ -79,12 +80,17 @@ class CameraRecorder(Node):
         self.width = None
         self.height = None
         
-        # Create subscriber
+        # Create subscriber with BEST_EFFORT QoS to match typical camera publishers
+        sensor_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=10
+        )
         self.subscription = self.create_subscription(
             Image,
             self.topic_name,
             self.image_callback,
-            10
+            sensor_qos
         )
         
         self.get_logger().info(f"Camera recorder initialized")
