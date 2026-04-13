@@ -24,6 +24,8 @@ Last updated: 2026-04-13
 - 업로드 디렉토리 구조 변경 (`barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`)
 - 파일 네이밍 컨벤션 확립 및 적용
 - Shared Drive 업로드 테스트 (구현 완료, 검증 필요)
+- SRT 실시간 기록 (crash safety) + CSV 제거
+- SRT 임베딩 워커 (세그먼트 완료 후 별도 프로세스로 remux)
 - Cron 기반 자동 업로드 (매시 :01) + MD5 검증 후 로컬 삭제
 - systemd (녹화) + crontab (업로드) 배포 세팅
 - LeRobot 호환 인코딩 옵션 (GOP=2) → `docs/management/backlog.md` 참조
@@ -66,8 +68,7 @@ Last updated: 2026-04-13
 **Tasks:**
 - [ ] 파일 네이밍 컨벤션 확립:
   - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.mp4`
-  - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}_timestamps.csv`
-  - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}_timestamps.srt`
+  - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.srt`
   - `BRANCH_ID`, `BRANCH_NAME` 환경변수/CLI 인자 추가
 - [ ] `--video-label` CLI 인자 추가 (default: `topview_video`)
   - RealSense RGB → `topview_video`, 추후 gripper → `gripper_video` 등
@@ -77,8 +78,13 @@ Last updated: 2026-04-13
   - 변경: 정각 기준 매시 `:00`에 세그먼트 전환
   - 첫 세그먼트는 짧을 수 있음 (e.g. 14:23 시작 → 15:00에 첫 분할)
 - [ ] 녹화 중 파일은 `.recording_` prefix로 작성, 세그먼트 완료 시 최종 이름으로 rename
+- [ ] SRT 파일을 녹화 중 실시간 append 방식으로 기록 (crash safety)
+  - 기존: `frame_records` 리스트에 메모리 누적 → 세그먼트 완료 시 일괄 작성
+  - 변경: 매 프레임마다 SRT 엔트리를 파일에 직접 append
+  - PC 갑작스런 종료 시에도 마지막 기록까지 SRT 파일에 남아있음
+- [ ] CSV timestamps 파일 제거 (SRT 임베딩으로 대체)
 
-**Acceptance:** 파일명이 `BB003_20260413T140000+0900_topview_video.mp4` 패턴, 1시간 정각 경계 분할 확인
+**Acceptance:** 파일명이 `BB003_20260413T140000+0900_topview_video.mp4` 패턴, 1시간 정각 경계 분할, SRT 실시간 기록 확인
 
 ---
 
@@ -100,21 +106,32 @@ Last updated: 2026-04-13
 
 ---
 
-### M4: Cron 기반 자동 업로드 + 검증 후 삭제
-**Goal:** 매시 :01에 cron으로 완료된 세그먼트 업로드, 검증 후 로컬 삭제
+### M4: Cron 통합 (SRT 임베딩 + 업로드 + 검증 후 삭제)
+**Goal:** 매시 :01 cron 단일 스크립트에서 임베딩 → 업로드 → 삭제 순차 실행
 **Deadline:** 2026-04-17 (목)
 
+**설계: File-based State Machine**
+```
+녹화 중:     .recording_XXX.mp4 + .recording_XXX.srt
+녹화 완료:   XXX.mp4 + XXX.srt           ← 임베딩 대상
+임베딩 완료: XXX.mp4 (srt 삭제됨)         ← 업로드 대상
+업로드 완료: (파일 삭제됨)
+```
+파일 존재/부재가 파이프라인 단계를 결정. cron 중간 실패 시 다음 실행에서 남은 작업부터 재개.
+
 **Tasks:**
-- [ ] `upload_cron.sh` (또는 `upload_cron.py`) 작성 — one-shot 스크립트
-  - 녹화 디렉토리 스캔: `.recording_` prefix 없고, `min-age-seconds=30` 이상인 파일 대상
-  - 미업로드 파일 전부 업로드 (이전 시간대 파일 포함 — 중간 시작/이전 실패 대응)
-- [ ] 업로드 → MD5 검증 → 검증 성공 시 로컬 파일 삭제 (MP4 + CSV + SRT)
-  - 검증 실패 시 로컬 유지 → 다음 cron 주기에 재시도
+- [ ] `upload_cron.sh` (또는 `upload_cron.py`) 작성 — one-shot 스크립트, 2단계 순차 실행:
+  - **Step 1 — SRT 임베딩**: `.mp4` + `.srt` 쌍 감지 (`min-age-seconds=30`)
+    → `ffmpeg -c:v copy -c:s mov_text` remux → 원본 교체 → `.srt` 삭제
+  - **Step 2 — 업로드**: `.srt` 없는 `.mp4` 감지 (= 임베딩 완료)
+    → 업로드 → MD5 검증 → 검증 성공 시 로컬 삭제
+    → 검증 실패 시 로컬 유지, 다음 cron 주기에 재시도
+- [ ] 미업로드 파일 전부 처리 (이전 시간대 포함 — 중간 시작/이전 실패 대응)
 - [ ] crontab 등록: `1 * * * *` (매시 :01 실행)
   - 세그먼트 전환(:00) 후 60초 여유 → 파일 충돌 위험 제거
 - [ ] 업로드 상태 로깅 (stdout → cron mail 또는 로그 파일)
 
-**Acceptance:** 매시 :01 자동 실행 → 완료된 세그먼트 업로드 → Drive 확인 → 로컬 삭제
+**Acceptance:** 매시 :01 → 임베딩 → 업로드 → Drive CC 자막 확인 → 로컬 삭제. cron 실패 후 재실행 시 정상 복구.
 
 ---
 
@@ -175,14 +192,34 @@ Last updated: 2026-04-13
 
 ---
 
+### M9: 녹화 최적화 (Post-stabilization)
+**Goal:** Python 기반 녹화 파이프라인의 CPU/메모리 부하 경감
+
+**Reference:** `docs/study/recording_optimization.md`
+
+**Tasks:**
+- [ ] FFmpeg preset 변경 (`medium` → `ultrafast` 또는 `fast`) — CPU 부하 절감
+- [ ] `tobytes()` 제거 → `memoryview(frame)` zero-copy 적용
+- [ ] passthrough encoding: RealSense rgb8 → ffmpeg rgb24 직접 전달 (BGR 변환 생략)
+- [ ] 부하 측정 (before/after 비교)
+
+**주의사항:** 각 최적화를 하나씩 적용하고 기능 검증 후 다음 적용. 한번에 여러 개 변경 금지.
+
+**선행 조건:** M6 (E2E 검증) 완료 후 진행. 추후 rclcpp 포팅 시 별도 계획.
+
+**Acceptance:** 녹화+업로드 기능 정상 유지 상태에서 CPU 사용률 감소 확인
+
+---
+
 ## Execution Order
 
 ```
-M0 ✅ → M1 ✅ → M2 (네이밍+정각정렬) → M3 (업로드구조+SharedDrive) → M4 (cron업로드+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
+M0 ✅ → M1 ✅ → M2 (네이밍+정각정렬) → M3 (업로드구조+SharedDrive) → M4 (임베딩+cron+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                                        이번 주 목표 (2026-04-13 ~ 2026-04-19)
                                                                               → M7 (SA 전환)
                                                                               → M8 (모니터링)
+                                                                              → M9 (녹화 최적화)
 ```
 
 **Immediate Next Step:** M2 — 파일 네이밍 컨벤션 확립 + `--video-label` + 1시간 정각 정렬 세그먼트 구현.
