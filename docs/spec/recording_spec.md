@@ -1,6 +1,6 @@
 # Recording Implementation Spec
 
-Last updated: 2026-02-03
+Last updated: 2026-03-03
 
 ## Scope
 - Provide a 24/7 continuous rolling recorder producing MP4 segments plus synchronized metadata for operations monitoring.
@@ -20,7 +20,15 @@ Last updated: 2026-02-03
    - After each hour completes, enqueue the past hour of segments for Google Drive upload.
    - Upload daemon retries with exponential backoff and records status in `upload_status.db`.
    - Local cache retains latest 6–12 hours; files are removed only when checksum + Drive listing confirm success.
-4. **Event-triggered Windows**
+4. **QoS Compatibility**
+   - Subscriber uses `BEST_EFFORT` reliability to match typical camera publishers (e.g., wireless gripper cameras).
+   - `BEST_EFFORT` subscriber is also compatible with `RELIABLE` publishers, so no regression for wired cameras.
+5. **Irregular Frame Rate Correction**
+   - When incoming frame rate is lower than the configured output FPS (e.g., ~15fps input vs 30fps output), the recorder duplicates the previous frame to fill the gap.
+   - For each received frame, elapsed time since the last frame is measured and `expected_frames = max(1, round(elapsed * fps))` determines how many output frames to write.
+   - This ensures playback duration matches real-world wall-clock time regardless of input frame rate fluctuations.
+   - Segment boundaries reset the frame timing state to prevent drift accumulation.
+6. **Event-triggered Windows**
    - Trigger sources: robot diagnostics, operator button, analytics.
    - When triggered, generate derived clips spanning configurable pre/post buffers (default ±5 min) from the continuous archive.
    - Derived clip naming: `<base_iso>_event-<slug>_<artifact>.ext` so both CCTV archive and event bundle share the same manifest lineage.

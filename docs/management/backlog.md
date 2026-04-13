@@ -1,6 +1,6 @@
 # Backlog
 
-Last updated: 2026-02-25
+Last updated: 2026-04-13
 
 이 문서는 즉시 실행하지 않지만 추후 필요한 작업을 관리한다.
 우선순위와 의존성이 확정되면 `upload_milestones.md`의 마일스톤으로 승격한다.
@@ -109,6 +109,37 @@ H.264 원본에 자막만 임베딩하는 경우(`-c:v copy`)에도 faststart가
 **작업 내용:**
 - [ ] `-c:v copy + faststart` 조합에서 moov atom 위치 검증
 - [ ] Drive 스트리밍 시작 시간 측정
+
+**선행 조건:** 없음
+
+---
+
+## 인프라 / 마이그레이션
+
+### BL-08: GitHub 리포지토리 마이그레이션 (우선순위: 중간)
+
+**배경:** 현재 `ros2_video_recorder`는 개인 리포지토리. xyzcorp 조직에 `xyz-data-collector`로 새 리포 생성하여
+비디오 외 다양한 데이터(joints, audio 등) 수집까지 확장 가능한 구조로 마이그레이션 필요.
+"collector" = recorder + uploader 를 포괄하는 네이밍.
+
+**작업 내용:**
+- [ ] xyzcorp GitHub org에 `xyz-data-collector` 리포 생성
+- [ ] 기존 코드 + history 마이그레이션
+- [ ] 패키지 구조 정리 (recorder, uploader 모듈 분리)
+- [ ] README, CI 세팅
+
+**선행 조건:** 이번 주 안정화 마일스톤 (M2~M6) 완료 후 진행
+
+---
+
+### BL-09: Depth 토픽 녹화 히스토리 문서화 (우선순위: 낮음)
+
+**배경:** RealSense depth 토픽 (`/camera/aligned_depth_to_color/image_raw`) 녹화를 위해
+`_convert_to_bgr()` 메서드가 구현되었으나, 아직 history 문서가 작성되지 않음.
+
+**작업 내용:**
+- [ ] `docs/history/07_depth_topic_recording_*/` 히스토리 문서 작성
+- [ ] 16UC1/32FC1 인코딩 처리, 99th percentile 정규화 기법 문서화
 
 **선행 조건:** 없음
 

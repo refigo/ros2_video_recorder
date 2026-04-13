@@ -70,6 +70,10 @@ class CameraRecorder(Node):
         self.writer_lock = threading.Lock()
         self.frame_records = []
         
+        # Frame duplication for irregular frame rate correction
+        self.last_frame_time = None
+        self.last_frame = None
+
         # Segmentation variables
         self.segment_number = 1
         self.segment_start_time = None
@@ -99,45 +103,106 @@ class CameraRecorder(Node):
         self.get_logger().info(f"FPS: {self.fps}")
         self.get_logger().info(f"Using FFmpeg: {self.use_ffmpeg}")
         
+    def _write_frame(self, frame):
+        """Write a single frame to the video output. Caller must hold writer_lock."""
+        if self.use_ffmpeg:
+            if self.ffmpeg_process and self.ffmpeg_process.stdin:
+                try:
+                    self.ffmpeg_process.stdin.write(frame.tobytes())
+                except (OSError, BrokenPipeError):
+                    pass
+        else:
+            if self.video_writer:
+                self.video_writer.write(frame)
+
+    def _convert_to_bgr(self, msg):
+        """Convert ROS Image message to BGR8 OpenCV image.
+
+        Handles both colour (e.g. rgb8, bgr8, bayer) and depth (16UC1, 32FC1)
+        encodings.  Depth images are normalised to 0-255 grayscale and then
+        converted to 3-channel BGR so the downstream video writer always
+        receives a consistent format.
+        """
+        encoding = msg.encoding
+
+        if encoding in ('16UC1', '32FC1'):
+            # Depth image — passthrough to preserve raw values
+            depth = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
+            if encoding == '32FC1':
+                # metres → millimetres, then clip to uint16 range
+                depth = np.clip(depth * 1000.0, 0, 65535).astype(np.uint16)
+            # Normalise to 0-255
+            valid = depth[depth > 0]
+            max_val = float(np.percentile(valid, 99)) if valid.size > 0 else 1.0
+            normalised = np.clip(depth.astype(np.float32) / max_val * 255.0, 0, 255).astype(np.uint8)
+            return cv2.cvtColor(normalised, cv2.COLOR_GRAY2BGR)
+
+        # Colour image — standard conversion
+        return self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+
     def image_callback(self, msg):
         try:
             # Convert ROS Image message to OpenCV format
-            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
-            
+            cv_image = self._convert_to_bgr(msg)
+
             # Initialize video writer on first frame
             if not self.recording:
                 self.initialize_recording(cv_image)
-                
+
             # Record frame
             if self.recording:
                 should_log = False
+                now = datetime.now(self.timezone)
+                ros_stamp = None
+                if hasattr(msg, 'header') and hasattr(msg.header, 'stamp'):
+                    ros_stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
+
                 with self.writer_lock:
-                    if self.use_ffmpeg:
-                        if self.ffmpeg_process and self.ffmpeg_process.stdin:
-                            try:
-                                self.ffmpeg_process.stdin.write(cv_image.tobytes())
-                            except (OSError, BrokenPipeError):
-                                pass
+                    if self.last_frame_time is None:
+                        # First frame: just write once and initialize
+                        self._write_frame(cv_image)
+                        self.frame_count += 1
+                        self.frame_records.append({
+                            'frame_idx': self.frame_count,
+                            'wall_time': now,
+                            'ros_stamp': ros_stamp
+                        })
                     else:
-                        if self.video_writer:
-                            self.video_writer.write(cv_image)
-                    
-                    self.frame_count += 1
-                    wall_time = datetime.now(self.timezone)
-                    ros_stamp = None
-                    if hasattr(msg, 'header') and hasattr(msg.header, 'stamp'):
-                        ros_stamp = (msg.header.stamp.sec, msg.header.stamp.nanosec)
-                    self.frame_records.append({
-                        'frame_idx': self.frame_count,
-                        'wall_time': wall_time,
-                        'ros_stamp': ros_stamp
-                    })
+                        elapsed = (now - self.last_frame_time).total_seconds()
+                        expected_frames = max(1, round(elapsed * self.fps))
+                        duplicate_count = expected_frames - 1
+
+                        # Write duplicates of the previous frame to fill the gap
+                        for i in range(duplicate_count):
+                            self._write_frame(self.last_frame)
+                            self.frame_count += 1
+                            # Interpolate timestamp for duplicated frames
+                            frac = (i + 1) / expected_frames
+                            interp_time = self.last_frame_time + timedelta(seconds=elapsed * frac)
+                            self.frame_records.append({
+                                'frame_idx': self.frame_count,
+                                'wall_time': interp_time,
+                                'ros_stamp': ros_stamp
+                            })
+
+                        # Write the current frame
+                        self._write_frame(cv_image)
+                        self.frame_count += 1
+                        self.frame_records.append({
+                            'frame_idx': self.frame_count,
+                            'wall_time': now,
+                            'ros_stamp': ros_stamp
+                        })
+
+                    self.last_frame_time = now
+                    self.last_frame = cv_image
+
                     if self.frame_count % 30 == 0:
                         should_log = True
-                
+
                 if should_log:
                     self.get_logger().info(f"Recorded {self.frame_count} frames")
-                    
+
         except Exception as e:
             self.get_logger().error(f"Error processing frame: {str(e)}")
             
@@ -374,6 +439,8 @@ class CameraRecorder(Node):
             self.segment_start_time = datetime.now(self.timezone)
             self.frame_count = 0  # Reset frame count for new segment
             self.frame_records = []
+            self.last_frame_time = None  # Reset to avoid cross-segment drift
+            self.last_frame = None
             new_segment_file = self.output_file
 
         self._write_segment_metadata(completed_file, completed_records, completed_start_time)

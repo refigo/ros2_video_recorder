@@ -1,6 +1,6 @@
 # Google Drive Upload Milestones
 
-Last updated: 2026-02-25
+Last updated: 2026-04-13
 
 ## References
 - `docs/spec/upload_spec.md` (인증 전략, 폴더 구조, 설정 키)
@@ -19,8 +19,13 @@ Last updated: 2026-02-25
 - `scripts/generate_oauth_token.py`: OAuth 토큰 생성 스크립트
 
 ### Not Yet Done
-- 10분 정각 정렬 녹화 (wall-clock aligned segments)
-- 자동 업로드 스케줄링 (segment 완료 시 자동 trigger)
+- 1시간 정각 정렬 녹화 (wall-clock aligned 1-hour segments)
+- `--video-label` 설정 (default: `topview_video`, 추후 gripper 등 확장)
+- 업로드 디렉토리 구조 변경 (`barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`)
+- 파일 네이밍 컨벤션 확립 및 적용
+- Shared Drive 업로드 테스트 (구현 완료, 검증 필요)
+- 업로드 데몬: polling 방식으로 완료된 세그먼트 자동 업로드 + 검증 후 로컬 삭제
+- systemd daemon 세팅 (녹화 + 업로드, 독립 서비스)
 - LeRobot 호환 인코딩 옵션 (GOP=2) → `docs/management/backlog.md` 참조
 
 ---
@@ -54,46 +59,99 @@ Last updated: 2026-02-25
 
 ---
 
-### M2: 10분 정각 정렬 세그먼트
-**Goal:** 녹화 세그먼트가 wall-clock 10분 경계에 맞춰 분할
+### M2: 파일 네이밍 컨벤션 + 1시간 정각 정렬 세그먼트
+**Goal:** 파일 네이밍 확립, 녹화 세그먼트가 wall-clock 1시간 정각 경계에 맞춰 분할
+**Deadline:** 2026-04-15 (화)
 
 **Tasks:**
-- [ ] `camera_recorder.py`에 wall-clock aligned segmentation 옵션 추가
-  - 현재: 시작 시점 기준 10분
-  - 변경: 정각 기준 `:00`, `:10`, `:20`, `:30`, `:40`, `:50`에 세그먼트 전환
-- [ ] 첫 세그먼트는 짧을 수 있음 (e.g. 13:07 시작 → 13:10에 첫 분할)
+- [ ] 파일 네이밍 컨벤션 확립:
+  - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.mp4`
+  - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}_timestamps.csv`
+  - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}_timestamps.srt`
+  - `BRANCH_ID`, `BRANCH_NAME` 환경변수/CLI 인자 추가
+- [ ] `--video-label` CLI 인자 추가 (default: `topview_video`)
+  - RealSense RGB → `topview_video`, 추후 gripper → `gripper_video` 등
+  - 다중 카메라 시 각각 다른 label로 recorder 인스턴스 실행
+- [ ] `camera_recorder.py`에 wall-clock aligned 1시간 segmentation 구현
+  - 현재: 시작 시점 기준 duration
+  - 변경: 정각 기준 매시 `:00`에 세그먼트 전환
+  - 첫 세그먼트는 짧을 수 있음 (e.g. 14:23 시작 → 15:00에 첫 분할)
+- [ ] 녹화 중 파일은 `.recording_` prefix로 작성, 세그먼트 완료 시 최종 이름으로 rename
 
-**Acceptance:** 세그먼트 파일명의 시간이 10분 정각 경계와 일치
+**Acceptance:** 파일명이 `BB003_20260413T140000+0900_topview_video.mp4` 패턴, 1시간 정각 경계 분할 확인
 
 ---
 
-### M3: 자동 업로드 Daemon
-**Goal:** 세그먼트 완료 시 자동으로 업로드 큐에 추가 → 업로드 실행
+### M3: 업로드 디렉토리 구조 변경 + Shared Drive 검증
+**Goal:** Google Drive 폴더 구조를 운영 요구사항에 맞게 변경, Shared Drive 업로드 검증
+**Deadline:** 2026-04-16 (수)
 
 **Tasks:**
-- [ ] Watchdog 또는 inotify 기반 파일 감시, 또는 recorder 콜백 방식 결정
-- [ ] 업로드 큐 (in-memory or SQLite) 구현
-- [ ] Exponential backoff retry (max 3회)
-- [ ] 업로드 성공 후 로컬 파일 정책 적용 (보존 or 삭제)
+- [ ] `uploader.py` 폴더 구조 변경:
+  - 기존: `recording_datas/{product}/{branch_id}/{YYYY}/{MM}/{DD}/{HH-mm}/`
+  - 변경: `barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`
+- [ ] `BRANCH_ID` + `BRANCH_NAME` 환경변수/CLI 인자 추가 (기존 `branch_id` 대체)
+- [ ] 파일명에서 날짜 파싱하여 자동으로 올바른 폴더에 업로드
+- [ ] SRT 별도 업로드 제거 — MP4 내 임베딩만 유지
+- [ ] **Shared Drive 업로드 테스트** (기존 `--shared-drive-id` 구현 검증)
+  - 폴더 생성 권한, 괄호 포함 폴더명 특수문자 처리 확인
 
-**Acceptance:** recorder 실행 중 segment 완료 → 자동 업로드 → Drive에서 파일 확인
+**Acceptance:** Shared Drive의 `barisbrew-recorded-datas/BB003(성수본점)/2026-04/20260413/` 구조로 업로드 확인
 
 ---
 
-### M4: 검증 + 정리 + Retention
-**Goal:** 업로드 무결성 검증 후 로컬 정리
+### M4: 업로드 데몬 (자동 업로드 + 검증 후 삭제)
+**Goal:** 완료된 세그먼트를 자동 감지, 업로드, 검증 후 로컬 삭제
+**Deadline:** 2026-04-17 (목)
 
 **Tasks:**
-- [ ] MD5 검증 활성화 (기존 구현 활용)
-- [ ] Retention policy: 로컬에 최근 6시간분 유지
-- [ ] 검증 실패 파일 재시도 로직
-- [ ] `upload_ledger.json` 기반 상태 추적
+- [ ] `upload_daemon.py` 신규 작성 — 독립 프로세스로 동작
+- [ ] Polling 방식: 5분 간격으로 녹화 디렉토리 스캔
+  - 완료 판별: `.recording_` prefix 없는 `.mp4` 파일 = 완료된 세그먼트
+  - 미업로드 파일 전부 업로드 (이전 시간대 파일 포함 — 중간 시작 대응)
+- [ ] 업로드 → MD5 검증 → 검증 성공 시 로컬 파일 삭제
+  - 검증 실패 시 다음 polling 주기에 재시도
+- [ ] Exponential backoff retry (네트워크 오류 시)
+- [ ] 업로드 상태 로깅 (업로드 완료/실패/삭제 이력)
 
-**Acceptance:** 검증된 파일만 삭제, 미검증 파일 유지 및 재시도
+**Acceptance:** recorder 실행 중 segment 완료 → 자동 업로드 → Drive 확인 → 로컬 삭제, 녹화 무중단
 
 ---
 
-### M5: Service Account 전환 (프로덕션)
+### M5: systemd Daemon 세팅
+**Goal:** 로봇에 배포 가능한 systemd service 파일 작성
+**Deadline:** 2026-04-18 (금)
+
+**Tasks:**
+- [ ] `ros2-camera-recorder.service`: 녹화 데몬
+- [ ] `ros2-upload-daemon.service`: 업로드 데몬
+- [ ] 환경변수 설정 파일 (`/etc/ros2-recorder/config.env`)
+  - `BRANCH_ID`, `BRANCH_NAME`, `GOOGLE_APPLICATION_CREDENTIALS` 등
+- [ ] 설치/배포 스크립트 작성
+- [ ] 로그 출력 → journald 연동
+
+**Acceptance:** `systemctl start ros2-camera-recorder` + `systemctl start ros2-upload-daemon` 으로 전체 파이프라인 작동
+
+---
+
+### M6: End-to-End 검증 + 안정화
+**Goal:** 전체 파이프라인 (녹화 → 세그먼트 완료 → 업로드 → Drive 확인) 통합 테스트
+**Deadline:** 2026-04-19 (토)
+
+**Tasks:**
+- [ ] RealSense RGB topview 토픽으로 24시간 연속 녹화 테스트
+- [ ] 1시간 정각 세그먼트 분할 검증
+- [ ] 프레임 복제 동작 확인 (irregular FPS 대응)
+- [ ] 자동 업로드 → Drive 폴더 구조 확인
+- [ ] SRT 임베딩 → Drive CC 자막 재생 확인
+- [ ] 네트워크 단절/복구 시 업로드 재시도 확인
+- [ ] systemd restart 후 정상 복구 확인
+
+**Acceptance:** 24시간 무중단 녹화+업로드 성공, Drive에서 영상 재생 + CC 자막 확인
+
+---
+
+### M7: Service Account 전환 (프로덕션)
 **Goal:** 회사 시스템에 Service Account 기반 무인 업로드 적용
 
 **Tasks:**
@@ -106,7 +164,7 @@ Last updated: 2026-02-25
 
 ---
 
-### M6: Monitoring + 운영 가시성
+### M8: Monitoring + 운영 가시성
 **Goal:** 업로드 상태를 빠르게 확인
 
 **Tasks:**
@@ -120,16 +178,18 @@ Last updated: 2026-02-25
 ## Execution Order
 
 ```
-M0 (OAuth 테스트) → M1 (폴더 구조) → M2 (정각 정렬) → M3 (자동 업로드)
-                                                         → M4 (검증/정리)
-                                                         → M5 (SA 전환)
-                                                         → M6 (모니터링)
+M0 ✅ → M1 ✅ → M2 (네이밍+정각정렬) → M3 (업로드구조+SharedDrive) → M4 (업로드데몬+삭제) → M5 (systemd) → M6 (E2E 검증)
+                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                                       이번 주 목표 (2026-04-13 ~ 2026-04-19)
+                                                                              → M7 (SA 전환)
+                                                                              → M8 (모니터링)
 ```
 
-**Immediate Next Step:** M2 — wall-clock 정각 정렬 세그먼트 구현.
+**Immediate Next Step:** M2 — 파일 네이밍 컨벤션 확립 + `--video-label` + 1시간 정각 정렬 세그먼트 구현.
 
 ## Risks / Open Questions
 - Google Drive API 일일 할당량: 기본 10억 쿼리/일이지만 업로드 대역폭 제한 확인 필요
-- 10분 세그먼트 × 24h = 일 144개 파일 + sidecars → API 호출량 관리
+- 1시간 세그먼트 × 24h = 일 24개 파일 + sidecars → API 호출량 적절
 - 네트워크 단절 시 큐 backpressure + 디스크 사용량 모니터링
 - robot arm joints 데이터 포맷 최종 결정 (Parquet vs ROS bag)
+- 괄호 포함 폴더명 `BB003(성수본점)` — Drive API 특수문자 처리 검증 필요
