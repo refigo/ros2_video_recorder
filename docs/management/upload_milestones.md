@@ -24,8 +24,8 @@ Last updated: 2026-04-13
 - 업로드 디렉토리 구조 변경 (`barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`)
 - 파일 네이밍 컨벤션 확립 및 적용
 - Shared Drive 업로드 테스트 (구현 완료, 검증 필요)
-- 업로드 데몬: polling 방식으로 완료된 세그먼트 자동 업로드 + 검증 후 로컬 삭제
-- systemd daemon 세팅 (녹화 + 업로드, 독립 서비스)
+- Cron 기반 자동 업로드 (매시 :01) + MD5 검증 후 로컬 삭제
+- systemd (녹화) + crontab (업로드) 배포 세팅
 - LeRobot 호환 인코딩 옵션 (GOP=2) → `docs/management/backlog.md` 참조
 
 ---
@@ -100,37 +100,37 @@ Last updated: 2026-04-13
 
 ---
 
-### M4: 업로드 데몬 (자동 업로드 + 검증 후 삭제)
-**Goal:** 완료된 세그먼트를 자동 감지, 업로드, 검증 후 로컬 삭제
+### M4: Cron 기반 자동 업로드 + 검증 후 삭제
+**Goal:** 매시 :01에 cron으로 완료된 세그먼트 업로드, 검증 후 로컬 삭제
 **Deadline:** 2026-04-17 (목)
 
 **Tasks:**
-- [ ] `upload_daemon.py` 신규 작성 — 독립 프로세스로 동작
-- [ ] Polling 방식: 5분 간격으로 녹화 디렉토리 스캔
-  - 완료 판별: `.recording_` prefix 없는 `.mp4` 파일 = 완료된 세그먼트
-  - 미업로드 파일 전부 업로드 (이전 시간대 파일 포함 — 중간 시작 대응)
-- [ ] 업로드 → MD5 검증 → 검증 성공 시 로컬 파일 삭제
-  - 검증 실패 시 다음 polling 주기에 재시도
-- [ ] Exponential backoff retry (네트워크 오류 시)
-- [ ] 업로드 상태 로깅 (업로드 완료/실패/삭제 이력)
+- [ ] `upload_cron.sh` (또는 `upload_cron.py`) 작성 — one-shot 스크립트
+  - 녹화 디렉토리 스캔: `.recording_` prefix 없고, `min-age-seconds=30` 이상인 파일 대상
+  - 미업로드 파일 전부 업로드 (이전 시간대 파일 포함 — 중간 시작/이전 실패 대응)
+- [ ] 업로드 → MD5 검증 → 검증 성공 시 로컬 파일 삭제 (MP4 + CSV + SRT)
+  - 검증 실패 시 로컬 유지 → 다음 cron 주기에 재시도
+- [ ] crontab 등록: `1 * * * *` (매시 :01 실행)
+  - 세그먼트 전환(:00) 후 60초 여유 → 파일 충돌 위험 제거
+- [ ] 업로드 상태 로깅 (stdout → cron mail 또는 로그 파일)
 
-**Acceptance:** recorder 실행 중 segment 완료 → 자동 업로드 → Drive 확인 → 로컬 삭제, 녹화 무중단
+**Acceptance:** 매시 :01 자동 실행 → 완료된 세그먼트 업로드 → Drive 확인 → 로컬 삭제
 
 ---
 
-### M5: systemd Daemon 세팅
-**Goal:** 로봇에 배포 가능한 systemd service 파일 작성
+### M5: systemd + cron 배포 세팅
+**Goal:** 로봇에 배포 가능한 systemd service (녹화) + crontab (업로드) 작성
 **Deadline:** 2026-04-18 (금)
 
 **Tasks:**
-- [ ] `ros2-camera-recorder.service`: 녹화 데몬
-- [ ] `ros2-upload-daemon.service`: 업로드 데몬
+- [ ] `ros2-camera-recorder.service`: 녹화 데몬 (systemd)
+- [ ] crontab 등록 스크립트: `upload_cron` 매시 :01 실행
 - [ ] 환경변수 설정 파일 (`/etc/ros2-recorder/config.env`)
   - `BRANCH_ID`, `BRANCH_NAME`, `GOOGLE_APPLICATION_CREDENTIALS` 등
-- [ ] 설치/배포 스크립트 작성
-- [ ] 로그 출력 → journald 연동
+- [ ] 설치/배포 스크립트 작성 (systemd + crontab 한번에 세팅)
+- [ ] 로그: recorder → journald, uploader → 로그 파일 또는 journald
 
-**Acceptance:** `systemctl start ros2-camera-recorder` + `systemctl start ros2-upload-daemon` 으로 전체 파이프라인 작동
+**Acceptance:** `systemctl start ros2-camera-recorder` + cron 매시 :01 업로드 자동 실행
 
 ---
 
@@ -178,7 +178,7 @@ Last updated: 2026-04-13
 ## Execution Order
 
 ```
-M0 ✅ → M1 ✅ → M2 (네이밍+정각정렬) → M3 (업로드구조+SharedDrive) → M4 (업로드데몬+삭제) → M5 (systemd) → M6 (E2E 검증)
+M0 ✅ → M1 ✅ → M2 (네이밍+정각정렬) → M3 (업로드구조+SharedDrive) → M4 (cron업로드+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                                        이번 주 목표 (2026-04-13 ~ 2026-04-19)
                                                                               → M7 (SA 전환)
