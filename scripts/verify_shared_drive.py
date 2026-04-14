@@ -28,7 +28,9 @@ sys.path.insert(0, REPO_ROOT)
 
 import uploader  # noqa: E402
 
-SMOKE_TEST_ROOT_SEGMENT = "_smoketest(테스트지점)"  # parens + Korean — the live thing we're testing
+SMOKE_TEST_PRODUCT = "_smoketest"
+SMOKE_TEST_BRANCH_ID = "SMOKE"
+SMOKE_TEST_BRANCH_NAME = "테스트지점"  # Korean — live-tested char set
 
 
 class StepError(Exception):
@@ -97,12 +99,9 @@ def step_2_shared_drive_meta(service, env: dict) -> str:
 
 def step_3_create_folder_tree(service, env: dict) -> tuple[str, list[str]]:
     now = datetime.now(tz=uploader.KST)
-    parts = [
-        "barisbrew-recorded-datas",
-        SMOKE_TEST_ROOT_SEGMENT,
-        now.strftime("%Y-%m"),
-        now.strftime("%Y%m%d"),
-    ]
+    parts = uploader.build_drive_path_parts(
+        SMOKE_TEST_PRODUCT, SMOKE_TEST_BRANCH_ID, SMOKE_TEST_BRANCH_NAME, now
+    )
     try:
         folder_id = uploader.ensure_drive_path(
             service, env["root_id"], parts, shared_drive_id=env["shared_drive_id"]
@@ -167,32 +166,17 @@ def step_5_reupload_skip(service, env: dict, parent_id: str, local_path: str, ex
 
 
 def _delete_tree(service, env: dict, root_parts: list[str]) -> None:
-    """Delete the smoke test folder tree (just the top-level _smoketest folder).
-    Deleting a folder in Drive recursively removes its children.
+    """Trash the top-level smoke folder (e.g. `_smoketest/`) — trashing folders is
+    recursive on Drive, and Content managers can trash but not permanently delete.
+    Trashed items are auto-purged after 30 days on Shared Drives.
     """
-    # find the top-level _smoketest folder under root_id
-    parent = env["root_id"]
-    # walk first two levels: barisbrew-recorded-datas → _smoketest(...)
-    first = root_parts[0]  # barisbrew-recorded-datas
-    smoke = root_parts[1]  # _smoketest(...)
-    escaped_first = uploader.escape_drive_query(first)
-    q1 = (
+    escaped = uploader.escape_drive_query(root_parts[0])
+    q = (
         f"mimeType='application/vnd.google-apps.folder' "
-        f"and name='{escaped_first}' and '{parent}' in parents and trashed=false"
+        f"and name='{escaped}' and '{env['root_id']}' in parents and trashed=false"
     )
-    matches = uploader.list_drive_files(service, q1, shared_drive_id=env["shared_drive_id"])
-    if not matches:
-        return
-    first_id = matches[0]["id"]
-    escaped_smoke = uploader.escape_drive_query(smoke)
-    q2 = (
-        f"mimeType='application/vnd.google-apps.folder' "
-        f"and name='{escaped_smoke}' and '{first_id}' in parents and trashed=false"
-    )
-    smoke_matches = uploader.list_drive_files(service, q2, shared_drive_id=env["shared_drive_id"])
-    for m in smoke_matches:
-        # Content managers on Shared Drives can trash but cannot permanently delete.
-        # Trashed folders are auto-purged after 30 days.
+    matches = uploader.list_drive_files(service, q, shared_drive_id=env["shared_drive_id"])
+    for m in matches:
         service.files().update(
             fileId=m["id"],
             body={"trashed": True},
@@ -231,7 +215,7 @@ def main() -> int:
     except StepError:
         # Attempt cleanup even on failure so we don't leave orphan folders
         try:
-            step_6_cleanup(service, env, ["barisbrew-recorded-datas", SMOKE_TEST_ROOT_SEGMENT])
+            step_6_cleanup(service, env, [SMOKE_TEST_PRODUCT])
         except Exception:
             pass
         print("\nShared Drive checks FAILED. See hints above.", file=sys.stderr)

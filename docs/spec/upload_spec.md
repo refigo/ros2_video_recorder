@@ -6,22 +6,26 @@ Last updated: 2026-04-14
 
 Upload recorded data (video segments, sidecars, and future joint logs) to Google Drive on an **hourly cron-driven** schedule, organized by **branch / month / day** hierarchy. Paths are derived per-file from the M2 filename convention, enabling a flat local `videos/` directory and day-boundary-safe routing.
 
-## Target Folder Structure (M3)
+## Target Folder Structure (M3 revised)
 
 ```
-barisbrew-recorded-datas/
-  └── <BRANCH_ID>(<BRANCH_NAME>)/   # e.g. BB003(성수본점)
-        └── <YYYY-MM>/              # e.g. 2026-04
-              └── <YYYYMMDD>/       # e.g. 20260414
-                    ├── BB003_20260414T140000+0900_topview_video.mp4
-                    ├── BB003_20260414T150000+0900_topview_video.mp4
-                    └── ...
+[Shared Drive root] / robot-data-archive /        # prod (top-level)
+[Shared Drive root] / 로봇지능화팀 / robot-data-archive-dev /   # dev
+  └── <PRODUCT>/                        # barisbrew / storagy / deux
+        └── <BRANCH_ID>(<BRANCH_NAME>)/ # e.g. BB003(성수본점)
+              └── <YYYY-MM>/            # e.g. 2026-04
+                    └── <YYYYMMDD>/     # e.g. 20260414
+                          ├── BB003_20260414T140000+0900_topview_video.mp4
+                          └── ...
 ```
 
+- `robot-data-archive` / `robot-data-archive-dev`: 사용자가 Drive에서 수동 생성한 루트 폴더. 업로더는 이 폴더 ID(`UPLOAD_ROOT_ID`)만 받고, 내부에 `{PRODUCT}/...` 부터 자동 생성.
+- `<PRODUCT>`: 로봇 제품 코드네임 (env: `PRODUCT`, CLI: `--product`, required). 예: `barisbrew`, `storagy`, `deux`
 - `<BRANCH_ID>`: 지점 코드 (env: `BRANCH_ID`, CLI: `--branch-id`, required)
 - `<BRANCH_NAME>`: 지점 표시명 (env: `BRANCH_NAME`, CLI: `--branch-name`, required)
 - 월/일: 파일명에서 파싱 (`{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{label}.mp4`)
 - SRT는 업로드 시 `transcode_for_drive`로 MP4에 임베딩 (`mov_text`) → 별도 업로드 없음
+- Dev/Prod 분리: 동일 SA 키 + 동일 Shared Drive, `UPLOAD_ROOT_ID`만 다르게 설정
 
 ## Upload Cadence (M4 scope)
 
@@ -55,7 +59,7 @@ barisbrew-recorded-datas/
    python3.10 uploader.py --auth-mode oauth \
      --oauth-client keys/client_secrets.json \
      --token-path keys/gdrive_token.json \
-     --branch-id BB003 --branch-name "성수본점" \
+     --product barisbrew --branch-id BB003 --branch-name "성수본점" \
      --session videos/
    ```
 
@@ -76,8 +80,9 @@ barisbrew-recorded-datas/
 4. 업로드 실행:
    ```bash
    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa_key.json
-   export UPLOAD_ROOT_ID=<회사Drive_폴더_id>
-   export UPLOAD_SHARED_DRIVE_ID=<shared_drive_id>  # Shared Drive 사용 시
+   export UPLOAD_ROOT_ID=<robot-data-archive[-dev]_폴더_id>
+   export UPLOAD_SHARED_DRIVE_ID=<shared_drive_id>
+   export PRODUCT=barisbrew
    export BRANCH_ID=BB003
    export BRANCH_NAME=성수본점
    python3.10 uploader.py --auth-mode service --session videos/
@@ -87,9 +92,10 @@ barisbrew-recorded-datas/
 
 | Key | Env Var | Default | Description |
 |-----|---------|---------|-------------|
+| product | `PRODUCT` | — (required) | 로봇 제품 코드네임 (e.g. `barisbrew`) |
 | branch_id | `BRANCH_ID` | — (required) | 지점 코드 (e.g. `BB003`) |
 | branch_name | `BRANCH_NAME` | — (required) | 지점 표시명 (e.g. `성수본점`) |
-| root_folder_id | `UPLOAD_ROOT_ID` | — (required) | Drive 최상위 폴더 ID |
+| root_folder_id | `UPLOAD_ROOT_ID` | — (required) | `robot-data-archive[-dev]` 폴더 ID |
 | shared_drive_id | `UPLOAD_SHARED_DRIVE_ID` | — (optional) | Shared Drive ID |
 | auth_mode | — | `service` | `service` or `oauth` |
 | min_age_seconds | — | `30` | 업로드 전 대기 시간 |

@@ -36,6 +36,7 @@ class UploadConfig:
     oauth_console: bool
     root_folder_id: Optional[str]
     shared_drive_id: Optional[str]
+    product: str
     branch_id: str
     branch_name: str
     min_age_seconds: int
@@ -159,10 +160,14 @@ def parse_segment_filename(name: str) -> Optional[datetime]:
         return None
 
 
-def build_drive_path_parts(branch_id: str, branch_name: str, dt: datetime) -> List[str]:
-    """Compose Drive folder path parts for a segment with KST datetime dt."""
+def build_drive_path_parts(product: str, branch_id: str, branch_name: str, dt: datetime) -> List[str]:
+    """Compose Drive folder path parts (relative to UPLOAD_ROOT_ID) for a segment.
+
+    Resulting structure under the user-managed root folder (e.g. `robot-data-archive/`):
+      {product}/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/
+    """
     return [
-        "barisbrew-recorded-datas",
+        product,
         f"{branch_id}({branch_name})",
         dt.strftime("%Y-%m"),
         dt.strftime("%Y%m%d"),
@@ -385,9 +390,10 @@ def upload_session(
 ) -> int:
     if not config.root_folder_id:
         raise ValueError("root_folder_id is required for session uploads")
-    if not config.branch_id or not config.branch_name:
-        raise ValueError("branch_id and branch_name are required for session uploads "
-                         "(set --branch-id/--branch-name or BRANCH_ID/BRANCH_NAME env)")
+    if not config.product or not config.branch_id or not config.branch_name:
+        raise ValueError("product, branch_id, and branch_name are required for session uploads "
+                         "(set --product/--branch-id/--branch-name or "
+                         "PRODUCT/BRANCH_ID/BRANCH_NAME env)")
 
     ledger_path = os.path.join(session_dir, "upload_ledger.json")
     ledger = load_ledger(ledger_path)
@@ -413,8 +419,10 @@ def upload_session(
                 logging.info("Skip (too recent): %s", local_path)
                 continue
 
-            path_parts = build_drive_path_parts(config.branch_id, config.branch_name, segment_dt)
-            cache_key = "/".join(path_parts[2:])  # YYYY-MM/YYYYMMDD
+            path_parts = build_drive_path_parts(
+                config.product, config.branch_id, config.branch_name, segment_dt
+            )
+            cache_key = "/".join(path_parts)  # full path = cache key
             target_folder_id = folder_cache.get(cache_key)
             if target_folder_id is None:
                 if config.dry_run:
@@ -516,6 +524,7 @@ def build_config(args: argparse.Namespace) -> UploadConfig:
         oauth_console=args.oauth_console,
         root_folder_id=args.root_folder or os.environ.get("UPLOAD_ROOT_ID"),
         shared_drive_id=args.shared_drive_id or os.environ.get("UPLOAD_SHARED_DRIVE_ID"),
+        product=args.product or os.environ.get("PRODUCT", ""),
         branch_id=args.branch_id or os.environ.get("BRANCH_ID", ""),
         branch_name=args.branch_name or os.environ.get("BRANCH_NAME", ""),
         min_age_seconds=args.min_age_seconds,
@@ -532,6 +541,7 @@ def main():
     parser.add_argument("--token-path", help="Path to OAuth token cache file")
     parser.add_argument("--root-folder", help="Drive folder ID for recordings root")
     parser.add_argument("--shared-drive-id", help="Shared Drive ID (optional)")
+    parser.add_argument("--product", help="Robot product codename (env: PRODUCT), e.g. barisbrew")
     parser.add_argument("--branch-id", help="Branch identifier (env: BRANCH_ID), e.g. BB003")
     parser.add_argument("--branch-name", help="Branch display name (env: BRANCH_NAME), e.g. 성수본점")
     parser.add_argument("--min-age-seconds", type=int, default=30, help="Skip files newer than this many seconds")

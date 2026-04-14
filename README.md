@@ -111,20 +111,22 @@ The uploader ships completed segment files to Google Drive. Routing is derived p
 
 **Target folder structure (M3):**
 ```
-barisbrew-recorded-datas/
-  └── {BRANCH_ID}({BRANCH_NAME})/   # e.g. BB003(성수본점)
-        └── {YYYY-MM}/              # e.g. 2026-04
-              └── {YYYYMMDD}/       # e.g. 20260414
-                    └── BB003_20260414T140000+0900_topview_video.mp4
+[Shared Drive]/robot-data-archive/       # prod (top-level) OR
+[Shared Drive]/로봇지능화팀/robot-data-archive-dev/   # dev
+  └── {PRODUCT}/                         # barisbrew / storagy / deux
+        └── {BRANCH_ID}({BRANCH_NAME})/  # e.g. BB003(성수본점)
+              └── {YYYY-MM}/             # e.g. 2026-04
+                    └── {YYYYMMDD}/      # e.g. 20260414
+                          └── BB003_20260414T140000+0900_topview_video.mp4
 ```
 
 SRT is embedded into the MP4 (`mov_text`) during upload — no separate `.srt` files are uploaded.
 
 **Prerequisites**
 - A Google service account JSON key *or* OAuth client for personal Drive testing
-- `UPLOAD_ROOT_ID` — Drive folder ID under which `barisbrew-recorded-datas/...` will be created
+- `UPLOAD_ROOT_ID` — ID of the `robot-data-archive` (prod) or `robot-data-archive-dev` (dev) folder
 - `UPLOAD_SHARED_DRIVE_ID` — optional but recommended for service accounts
-- `BRANCH_ID` + `BRANCH_NAME` (required for session uploads)
+- `PRODUCT` + `BRANCH_ID` + `BRANCH_NAME` (all required for session uploads)
 
 Install uploader dependencies:
 ```bash
@@ -134,7 +136,7 @@ pip install -r requirements.txt
 **Dry-run (offline, no creds needed):**
 ```bash
 python3.10 uploader.py --dry-run \
-  --branch-id BB003 --branch-name "성수본점" \
+  --product barisbrew --branch-id BB003 --branch-name "성수본점" \
   --root-folder FAKE --session videos/ --min-age-seconds 0
 ```
 
@@ -142,7 +144,7 @@ python3.10 uploader.py --dry-run \
 ```bash
 python3.10 uploader.py --auth-mode oauth \
   --oauth-client keys/client_secrets.json --token-path keys/gdrive_token.json \
-  --branch-id BB003 --branch-name "성수본점" \
+  --product barisbrew --branch-id BB003 --branch-name "성수본점" \
   --session videos/
 ```
 
@@ -151,8 +153,9 @@ Generate an OAuth token first with `scripts/generate_oauth_token.py` (see `docs/
 **Service account (production):**
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service_account.json
-export UPLOAD_ROOT_ID=<drive_folder_id>
+export UPLOAD_ROOT_ID=<robot-data-archive_folder_id>
 export UPLOAD_SHARED_DRIVE_ID=<shared_drive_id>
+export PRODUCT=barisbrew
 export BRANCH_ID=BB003
 export BRANCH_NAME=성수본점
 

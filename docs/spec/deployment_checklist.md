@@ -8,9 +8,10 @@ This checklist covers adding a **new robot** to the recording + upload pipeline.
 
 - [ ] Company GCP project with Drive API enabled
 - [ ] Service Account created, JSON key downloaded to a secure location (not committed)
-- [ ] Shared Drive `[XYZ] 본사 자료` exists; SA added as **Content manager**
-- [ ] Upload root folder created inside the Shared Drive; folder ID recorded
-- [ ] `scripts/verify_shared_drive.py` executed once and all 6 steps PASS on admin machine
+- [ ] Shared Drive `[XYZ] 본사 자료` exists; SA added as **Content manager** (Manager가 등록해줘야 함 — Content manager는 멤버 추가 권한 없음)
+- [ ] **Prod** root folder `robot-data-archive` (Shared Drive root 직속) 생성, ID 기록
+- [ ] **Dev** root folder `robot-data-archive-dev` (`로봇지능화팀/` 하위) 생성, ID 기록
+- [ ] `scripts/verify_shared_drive.py` executed once against dev root and all 6 steps PASS
 
 Values recorded:
 
@@ -18,7 +19,9 @@ Values recorded:
 |-----|-------|
 | `GOOGLE_APPLICATION_CREDENTIALS` (path on robot) | `/etc/ros2-recorder/keys/company-sa.json` |
 | `UPLOAD_SHARED_DRIVE_ID` | `<from Shared Drive URL>` |
-| `UPLOAD_ROOT_ID` | `<from upload-root folder URL>` |
+| `UPLOAD_ROOT_ID` (prod) | `<from robot-data-archive folder URL>` |
+| `UPLOAD_ROOT_ID` (dev) | `<from robot-data-archive-dev folder URL>` |
+| `PRODUCT` | one of `barisbrew`, `storagy`, `deux` (per robot fleet) |
 
 ## Per-robot deployment steps
 
@@ -41,7 +44,8 @@ sudo cp config/uploader.env.example /etc/ros2-recorder/uploader.env
 sudo ${EDITOR:-nano} /etc/ros2-recorder/uploader.env
 # Replace:
 #   UPLOAD_SHARED_DRIVE_ID=...
-#   UPLOAD_ROOT_ID=...
+#   UPLOAD_ROOT_ID=...    ← prod for production robots, dev for lab/testing
+#   PRODUCT=barisbrew     ← robot product this fleet belongs to
 #   BRANCH_ID=BBxxx       ← this robot's branch code
 #   BRANCH_NAME=...       ← this robot's branch display name
 sudo chmod 640 /etc/ros2-recorder/uploader.env
@@ -83,6 +87,6 @@ ls -lh videos/ | tail
 # no .recording_ files older than 30 min (stale = recorder crashed)
 
 # Drive (in browser)
-# Navigate: [XYZ] 본사 자료 → <UPLOAD_ROOT_NAME> → barisbrew-recorded-datas → <BRANCH_ID>(<BRANCH_NAME>) → <YYYY-MM> → <YYYYMMDD>
+# Navigate: [XYZ] 본사 자료 → robot-data-archive[-dev] → <PRODUCT> → <BRANCH_ID>(<BRANCH_NAME>) → <YYYY-MM> → <YYYYMMDD>
 # Open one MP4 → H.264 playback + CC subtitle should work
 ```

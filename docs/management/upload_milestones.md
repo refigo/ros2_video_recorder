@@ -1,6 +1,6 @@
 # Google Drive Upload Milestones
 
-Last updated: 2026-04-14 (M3 offline 완료)
+Last updated: 2026-04-14 (M3 live 검증 완료 + product 계층 추가)
 
 ## References
 - `docs/spec/upload_spec.md` (인증 전략, 폴더 구조, 설정 키)
@@ -14,7 +14,7 @@ Last updated: 2026-04-14 (M3 offline 완료)
 - **FFmpeg H.264 녹화** (`--ffmpeg`, libx264 + yuv420p) — Drive 브라우저 재생 호환
 - **업로드 시 SRT 자막 임베딩** (mov_text, `-c:v copy` 무손상) — Drive CC 자막 지원
 - `uploader.py`: OAuth + Service Account 인증, 세션 업로드, 파일 업로드, MD5 검증, 중복 skip, 로컬 삭제
-- **폴더 구조 (M3 완료 — offline)**: `barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/` — 파일명 기반 per-file 라우팅, folder-id 캐싱
+- **폴더 구조 (M3 완료)**: `{UPLOAD_ROOT_ID}/{PRODUCT}/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`. 업로드 루트는 사용자 관리 (`robot-data-archive` prod / `robot-data-archive-dev` dev). 파일명 기반 per-file 라우팅 + folder-id 캐싱 + product 계층
 - `scripts/generate_oauth_token.py`: OAuth 토큰 생성 스크립트
 - **파일 네이밍 컨벤션 (M2 완료)**: `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.{mp4,srt}`
 - **Wall-clock 1시간 정각 정렬 세그먼트 (M2 완료)**: 매시 `:00`에 세그먼트 전환
@@ -84,27 +84,25 @@ Last updated: 2026-04-14 (M3 offline 완료)
 
 ---
 
-### M3: 업로드 디렉토리 구조 변경 + Shared Drive 검증 ✅ offline 완료 (2026-04-14)
+### M3: 업로드 디렉토리 구조 변경 + Shared Drive 검증 ✅ 완료 (2026-04-14)
 **Goal:** Google Drive 폴더 구조를 운영 요구사항에 맞게 변경, Shared Drive 업로드 검증
 **Deadline:** 2026-04-16 (수)
 
-**Reference:** `docs/history/08_m3_upload_restructure_20260414_*/`
+**Reference:** `docs/history/08_m3_upload_restructure_20260414_*/`, `docs/history/09_m3_product_layer_dev_prod_split_20260414_*/`
 
 **Tasks:**
-- [x] `uploader.py` 폴더 구조 변경:
-  - 기존: `recording_datas/{product}/{branch_id}/{YYYY}/{MM}/{DD}/{HH-mm}/`
-  - 변경: `barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`
-- [x] `BRANCH_ID` + `BRANCH_NAME` 환경변수/CLI 인자 추가 (`PRODUCT_NAME` 제거)
+- [x] `uploader.py` 폴더 구조 변경 — 최종: `{UPLOAD_ROOT_ID}/{PRODUCT}/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`
+- [x] `PRODUCT` + `BRANCH_ID` + `BRANCH_NAME` env/CLI 인자 추가 (`PRODUCT_NAME` 제거)
 - [x] 파일명에서 날짜 파싱하여 per-file 폴더 라우팅 (일 경계 세그먼트 안전 처리)
 - [x] Folder-id 캐싱 (같은 run 내 중복 `ensure_drive_path` 호출 제거)
 - [x] SRT 별도 업로드 제거 — MP4 내 임베딩만 유지 (`collect_session_files`에서 `.srt` 전부 skip)
 - [x] `.recording_` prefix 파일 skip (녹화 중인 세그먼트 보호)
-- [x] Offline 검증 완료 — unit tests + dry-run against `videos/` 16 files (day boundary 분할, 캐시 동작, legacy 파일 skip 경고 확인)
-- [ ] **Shared Drive 라이브 업로드 테스트** (creds 확보 후 M4 통합 중 수행)
-  - 폴더 생성 권한, 괄호 + 한글 폴더명 `BB003(성수본점)` 특수문자 live 검증
+- [x] Offline 검증 — unit tests + dry-run against `videos/` 16 files
+- [x] Live Shared Drive 검증 — `scripts/verify_shared_drive.py` 6/6 PASS (한글+괄호 폴더명 정상 수용 확인)
+- [x] Dev/Prod 분리 구조 확립 — 동일 SA + 동일 Shared Drive, `UPLOAD_ROOT_ID`만 분리
+- [x] Content manager 권한에서 trash 기반 cleanup (permanent delete는 Manager 전용)
 
-**Acceptance (offline):** ✅ dry-run으로 `barisbrew-recorded-datas/MGOTEST(테스트지점)/2026-04/20260413/` + `.../20260414/` 올바른 분할 확인
-**Acceptance (live):** 미완료 — M4 통합 중 수행
+**Acceptance:** ✅ `robot-data-archive-dev/_smoketest/SMOKE(테스트지점)/2026-04/20260414/` 실제 Shared Drive 업로드 성공 + MD5 검증 + idempotent skip + trash cleanup.
 
 ---
 
@@ -216,15 +214,15 @@ Last updated: 2026-04-14 (M3 offline 완료)
 ## Execution Order
 
 ```
-M0 ✅ → M1 ✅ → M2 ✅ → M3 ✅(offline) → M4 (임베딩+cron+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
-                                        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                                                     이번 주 목표 (2026-04-13 ~ 2026-04-19)
+M0 ✅ → M1 ✅ → M2 ✅ → M3 ✅ → M4 (임베딩+cron+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
+                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                                       이번 주 목표 (2026-04-13 ~ 2026-04-19)
                                                                               → M7 (SA 전환)
                                                                               → M8 (모니터링)
                                                                               → M9 (녹화 최적화)
 ```
 
-**Immediate Next Step:** M4 — SRT 임베딩 + 업로드 + MD5 검증 + 로컬 삭제를 하나의 cron 스크립트로 통합. M3의 live 검증은 M4 통합 시 실제 Shared Drive 업로드로 함께 수행.
+**Immediate Next Step:** M4 — SRT 임베딩 + 업로드 + MD5 검증 + 로컬 삭제를 하나의 cron 스크립트로 통합.
 
 ## Risks / Open Questions
 - Google Drive API 일일 할당량: 기본 10억 쿼리/일이지만 업로드 대역폭 제한 확인 필요
