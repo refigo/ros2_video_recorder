@@ -23,10 +23,10 @@ Last updated: 2026-04-14
    - `{basename}.mp4`: H.264 video (ffmpeg backend, libx264 + yuv420p).
    - *Removed in M2:* CSV timestamps file (subsumed by SRT).
    - *Future (M3+):* `_metadata.json` for upload ledger, `_joints.parquet` for lerobot training — not yet implemented.
-4. **Upload Pipeline** — *M3/M4 scope, not yet implemented*
-   - Cron at `:01` of each hour runs a single script: SRT embedding (ffmpeg remux `-c:v copy -c:s mov_text`) → upload → MD5 verify → local delete.
-   - `min-age-seconds=30` on embedding step + cron at `:01` = 60s buffer after segment switch. No file-collision risk with recorder.
-   - Upload target folder: `barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/` (Shared Drive).
+4. **Upload Pipeline** — *M3 완료 (uploader + Drive routing), M4 완료 (embed + cron orchestrator)*
+   - `scripts/upload_cron.sh` (M5에서 crontab 등록): `.mp4`+`.srt` 쌍 감지 → `scripts/embed_srt.py`로 subtitle embed → `scripts/upload_cron.py`가 업로드 + MD5 검증 + 로컬 삭제
+   - `min-age-seconds=30` + cron at `:01` = 60s buffer after segment switch. No file-collision risk with recorder.
+   - Upload target folder: `{UPLOAD_ROOT_ID}/{PRODUCT}/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/` (Shared Drive).
 5. **QoS Compatibility**
    - Subscriber uses `BEST_EFFORT` reliability to match typical camera publishers (e.g., wireless gripper cameras).
    - `BEST_EFFORT` subscriber is also compatible with `RELIABLE` publishers, so no regression for wired cameras.

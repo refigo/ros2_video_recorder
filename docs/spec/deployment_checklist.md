@@ -66,8 +66,21 @@ All 6 steps must PASS. If Step 2 fails the robot cannot see the Shared Drive (ch
 ### 4. Install recorder + uploader services (M5 scope — not yet implemented)
 
 - [ ] systemd unit for recorder — uses `--branch-id $BRANCH_ID --video-label topview_video`
-- [ ] cron entry `1 * * * *` for uploader — reads `/etc/ros2-recorder/uploader.env`
-- [ ] verify: hourly segment appears in Drive under `barisbrew-recorded-datas/<BRANCH_ID>(<BRANCH_NAME>)/YYYY-MM/YYYYMMDD/`
+- [ ] crontab entry for uploader (**M4 script ready**):
+      ```
+      1 * * * * /opt/ros2-recorder/scripts/upload_cron.sh >> /var/log/ros2-recorder/upload_cron.log 2>&1
+      ```
+- [ ] verify: hourly segment appears in Drive under `<UPLOAD_ROOT>/<PRODUCT>/<BRANCH_ID>(<BRANCH_NAME>)/YYYY-MM/YYYYMMDD/`
+
+### Manual cron run (pre-M5 smoke check)
+
+```bash
+set -a; source /etc/ros2-recorder/uploader.env; set +a
+cd ~/git_repo_mine/ros2_video_recorder
+.venv/bin/python scripts/upload_cron.py --videos-dir "$VIDEOS_DIR" --min-age-seconds 0
+```
+
+Expected: embed phase processes pending pairs, upload phase uploads + verifies + deletes local. Re-run prints "no files" + exit 0.
 
 ## Rollback
 

@@ -27,12 +27,18 @@ Upload recorded data (video segments, sidecars, and future joint logs) to Google
 - SRT는 업로드 시 `transcode_for_drive`로 MP4에 임베딩 (`mov_text`) → 별도 업로드 없음
 - Dev/Prod 분리: 동일 SA 키 + 동일 Shared Drive, `UPLOAD_ROOT_ID`만 다르게 설정
 
-## Upload Cadence (M4 scope)
+## Upload Cadence (M4 완료)
 
 - Recording: 1-hour segments aligned to wall-clock `:00` (M2 완료)
 - Upload trigger: cron `1 * * * *` (매시 :01) — 세그먼트 전환 후 60초 버퍼
 - Upload window: `min-age-seconds` (default 30s) — 파일 완료 확정 후
-- 중복 방지: MD5 기반 dedup. 검증 성공 시 로컬 삭제 (`--delete-local`).
+- 중복 방지: MD5 기반 dedup. 검증 성공 시 로컬 삭제.
+
+**Cron 스크립트 2단계 (M4):**
+1. `scripts/embed_srt.py` — `.mp4`+`.srt` 쌍 → `ffmpeg -c:v copy -c:s mov_text` 리먹스 → `.embedding.tmp` → atomic replace → `.srt` 삭제
+2. `scripts/upload_cron.py` — embed 완료된 `.mp4` 업로드 → MD5 검증 → 로컬 삭제. 이 단계에서 `transcode_for_drive`는 이미 H.264 + subtitle이므로 no-op pass-through.
+
+배포: `scripts/upload_cron.sh` 래퍼가 `/etc/ros2-recorder/uploader.env` 로드 + `/usr/bin/python3.10` 호출.
 
 ## Authentication Strategy
 

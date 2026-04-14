@@ -1,6 +1,6 @@
 # Google Drive Upload Milestones
 
-Last updated: 2026-04-14 (M3 live 검증 완료 + product 계층 추가)
+Last updated: 2026-04-14 (M4 완료: embed+cron 스크립트 + live E2E)
 
 ## References
 - `docs/spec/upload_spec.md` (인증 전략, 폴더 구조, 설정 키)
@@ -106,9 +106,11 @@ Last updated: 2026-04-14 (M3 live 검증 완료 + product 계층 추가)
 
 ---
 
-### M4: Cron 통합 (SRT 임베딩 + 업로드 + 검증 후 삭제)
+### M4: Cron 통합 (SRT 임베딩 + 업로드 + 검증 후 삭제) ✅ 완료 (2026-04-14)
 **Goal:** 매시 :01 cron 단일 스크립트에서 임베딩 → 업로드 → 삭제 순차 실행
 **Deadline:** 2026-04-17 (목)
+
+**Reference:** `docs/history/10_m4_cron_embed_upload_20260414_*/`
 
 **설계: File-based State Machine**
 ```
@@ -120,18 +122,18 @@ Last updated: 2026-04-14 (M3 live 검증 완료 + product 계층 추가)
 파일 존재/부재가 파이프라인 단계를 결정. cron 중간 실패 시 다음 실행에서 남은 작업부터 재개.
 
 **Tasks:**
-- [ ] `upload_cron.sh` (또는 `upload_cron.py`) 작성 — one-shot 스크립트, 2단계 순차 실행:
-  - **Step 1 — SRT 임베딩**: `.mp4` + `.srt` 쌍 감지 (`min-age-seconds=30`)
-    → `ffmpeg -c:v copy -c:s mov_text` remux → 원본 교체 → `.srt` 삭제
-  - **Step 2 — 업로드**: `.srt` 없는 `.mp4` 감지 (= 임베딩 완료)
-    → 업로드 → MD5 검증 → 검증 성공 시 로컬 삭제
-    → 검증 실패 시 로컬 유지, 다음 cron 주기에 재시도
-- [ ] 미업로드 파일 전부 처리 (이전 시간대 포함 — 중간 시작/이전 실패 대응)
-- [ ] crontab 등록: `1 * * * *` (매시 :01 실행)
-  - 세그먼트 전환(:00) 후 60초 여유 → 파일 충돌 위험 제거
-- [ ] 업로드 상태 로깅 (stdout → cron mail 또는 로그 파일)
+- [x] `scripts/embed_srt.py` — standalone embed 모듈 + CLI (atomic .embedding.tmp → os.replace → srt 삭제)
+- [x] `scripts/upload_cron.py` — embed + uploader 오케스트레이터, env 기반 설정
+- [x] `scripts/upload_cron.sh` — cron 래퍼 (`/etc/ros2-recorder/uploader.env` 로드 + `/usr/bin/python3.10` 호출)
+- [x] Idempotent 복구: stale `.embedding.tmp` 정리, 이미 임베딩된 mp4 + orphan srt → srt만 삭제
+- [x] Per-file 실패 격리 (한 파일 실패가 나머지 업로드를 막지 않음)
+- [x] `min-age-seconds=30` 기본값 — segment 전환 후 60초 버퍼 보장
+- [x] Exit code: embed failed 또는 upload exception 발생 시 non-zero
+- [x] Offline 검증 — 6/6 PASS (fresh embed, idempotent, partial-crash 복구, stale tmp, orphan srt, dry-run)
+- [x] Live dev 검증 — MGOTEST 11MB 파일로 E2E 성공 (embed 0.2s + upload 15.5s, MD5 verify, 로컬 삭제, re-run idempotent)
+- [ ] crontab 실제 등록 → M5 범위 (스크립트는 준비 완료)
 
-**Acceptance:** 매시 :01 → 임베딩 → 업로드 → Drive CC 자막 확인 → 로컬 삭제. cron 실패 후 재실행 시 정상 복구.
+**Acceptance:** ✅ `upload_cron.py` 한 번 실행으로 embed → upload → verify → delete 순차 완료. Re-run 시 "no files" 출력 + exit 0.
 
 ---
 
@@ -214,15 +216,15 @@ Last updated: 2026-04-14 (M3 live 검증 완료 + product 계층 추가)
 ## Execution Order
 
 ```
-M0 ✅ → M1 ✅ → M2 ✅ → M3 ✅ → M4 (임베딩+cron+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
-                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-                                       이번 주 목표 (2026-04-13 ~ 2026-04-19)
+M0 ✅ → M1 ✅ → M2 ✅ → M3 ✅ → M4 ✅ → M5 (systemd+cron 배포) → M6 (E2E 24h 검증)
+                                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+                                            이번 주 목표 (2026-04-13 ~ 2026-04-19)
                                                                               → M7 (SA 전환)
                                                                               → M8 (모니터링)
                                                                               → M9 (녹화 최적화)
 ```
 
-**Immediate Next Step:** M4 — SRT 임베딩 + 업로드 + MD5 검증 + 로컬 삭제를 하나의 cron 스크립트로 통합.
+**Immediate Next Step:** M5 — `scripts/upload_cron.sh` + recorder를 systemd/crontab으로 등록, `/etc/ros2-recorder/` 배포 레이아웃 확립.
 
 ## Risks / Open Questions
 - Google Drive API 일일 할당량: 기본 10억 쿼리/일이지만 업로드 대역폭 제한 확인 필요

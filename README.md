@@ -162,6 +162,14 @@ export BRANCH_NAME=성수본점
 python3.10 uploader.py --auth-mode service --session videos/ --delete-local --verify-md5
 ```
 
+**Hourly cron (M4):**
+```bash
+# One-shot: embed SRT into MP4 then upload
+set -a; source /etc/ros2-recorder/uploader.env; set +a
+scripts/upload_cron.sh --min-age-seconds 30
+```
+`scripts/upload_cron.sh` chains `scripts/embed_srt.py` (SRT → mov_text remux, atomic replace) and `scripts/upload_cron.py` (upload + MD5 verify + local delete). Designed for crontab `1 * * * *`.
+
 **Single-file manual upload:**
 ```bash
 python3.10 uploader.py --file videos/BB003_20260414T140000+0900_topview_video.mp4 \
