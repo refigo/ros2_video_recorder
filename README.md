@@ -285,3 +285,4 @@ Recording completed - 2 segment(s) saved to videos/
 - Recording stops gracefully with Ctrl+C — final segment is renamed and SRT closed
 - Frame rate in output video is corrected via frame duplication when input FPS < output FPS
 - See `docs/history/` for implementation history, `docs/management/upload_milestones.md` for roadmap
+- **`docs/study/operational_gotchas.md` — 배포/디버깅 시 반드시 먼저 훑어보세요** (권한 모델, FFmpeg 특성, 저조도 용량 폭증, file state machine 불변식 등)

@@ -4,6 +4,8 @@ Last updated: 2026-04-14
 
 This checklist covers adding a **new robot** to the recording + upload pipeline. One-time company-wide setup (GCP project, Service Account, Shared Drive membership) is assumed done — see `docs/spec/upload_spec.md` and the Shared Drive verification plan.
 
+> **배포 전 필독:** [`docs/study/operational_gotchas.md`](../study/operational_gotchas.md) — 권한 모델, `-f mp4` 필수, `os.replace` same-fs, 저조도 용량 폭증 등 함정 모음.
+
 ## Prerequisites (one-time, company-wide)
 
 - [ ] Company GCP project with Drive API enabled
