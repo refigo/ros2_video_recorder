@@ -105,65 +105,70 @@ videos/BB003_20260414T140000+0900_topview_video.srt
 
 The `.recording_` prefix lets downstream tools (cron uploader, M4) identify completed vs. in-progress segments.
 
-### Google Drive Upload (Preview)
+### Google Drive Upload (M3)
 
-> **Note:** The upload paths and folder structure described below reflect pre-M2 conventions. M3 (in progress — see `docs/management/upload_milestones.md`) changes the folder layout to `barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`, and M4 integrates upload with SRT embedding into a single cron script. The examples below still work for manual uploads during transition.
+The uploader ships completed segment files to Google Drive. Routing is derived per-file from the M2 filename, so the local source directory can be a flat `videos/` that accumulates hourly segments across days.
 
-The uploader ships completed session files to Google Drive using a service account.
+**Target folder structure (M3):**
+```
+barisbrew-recorded-datas/
+  └── {BRANCH_ID}({BRANCH_NAME})/   # e.g. BB003(성수본점)
+        └── {YYYY-MM}/              # e.g. 2026-04
+              └── {YYYYMMDD}/       # e.g. 20260414
+                    └── BB003_20260414T140000+0900_topview_video.mp4
+```
+
+SRT is embedded into the MP4 (`mov_text`) during upload — no separate `.srt` files are uploaded.
 
 **Prerequisites**
-- A Google service account JSON key with access to the target Drive folder
-- `GOOGLE_APPLICATION_CREDENTIALS` pointing to the JSON key
-- `UPLOAD_ROOT_ID` set to the Drive folder ID that will contain `robot_<id>/YYYY/MM/DD/...`
-- Optional: `ROBOT_ID`, `SHIFT`, `OPERATOR`
+- A Google service account JSON key *or* OAuth client for personal Drive testing
+- `UPLOAD_ROOT_ID` — Drive folder ID under which `barisbrew-recorded-datas/...` will be created
+- `UPLOAD_SHARED_DRIVE_ID` — optional but recommended for service accounts
+- `BRANCH_ID` + `BRANCH_NAME` (required for session uploads)
 
 Install uploader dependencies:
 ```bash
 pip install -r requirements.txt
 ```
 
-**OAuth test mode (local user login)**
-1. Create an OAuth client in Google Cloud Console (type: Desktop app).
-2. Enable Google Drive API for the project.
-3. Download the client secrets JSON.
-4. Run the uploader with `--auth-mode oauth`.
-
-Generate a token on a local machine (recommended if this server has restricted DNS):
+**Dry-run (offline, no creds needed):**
 ```bash
-python3 scripts/generate_oauth_token.py --client-secrets /path/to/client_secrets.json \
-  --out gdrive_token.json --oob
+python3.10 uploader.py --dry-run \
+  --branch-id BB003 --branch-name "성수본점" \
+  --root-folder FAKE --session videos/ --min-age-seconds 0
 ```
 
+**OAuth test mode (local user login):**
 ```bash
-export UPLOAD_ROOT_ID=<drive_folder_id>
-export ROBOT_ID=robotA07
-export SHIFT=day
-export OPERATOR=op1
-
-python3 uploader.py --auth-mode oauth --oauth-client /path/to/client_secrets.json \
-  --token-path gdrive_token.json \
-  --session videos/session_20260205_120000
+python3.10 uploader.py --auth-mode oauth \
+  --oauth-client keys/client_secrets.json --token-path keys/gdrive_token.json \
+  --branch-id BB003 --branch-name "성수본점" \
+  --session videos/
 ```
 
-If you are on a headless machine, add `--oauth-console` to use a copy/paste flow.
+Generate an OAuth token first with `scripts/generate_oauth_token.py` (see `docs/spec/upload_spec.md`).
 
-Upload a full session directory:
+**Service account (production):**
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service_account.json
 export UPLOAD_ROOT_ID=<drive_folder_id>
-export UPLOAD_SHARED_DRIVE_ID=<shared_drive_id>  # optional, recommended for service accounts
-export ROBOT_ID=robotA07
-export SHIFT=day
-export OPERATOR=op1
+export UPLOAD_SHARED_DRIVE_ID=<shared_drive_id>
+export BRANCH_ID=BB003
+export BRANCH_NAME=성수본점
 
-python3 uploader.py --session videos/session_20260205_120000
+python3.10 uploader.py --auth-mode service --session videos/ --delete-local --verify-md5
 ```
 
-Upload a single file:
+**Single-file manual upload:**
 ```bash
-python3 uploader.py --file videos/session_20260205_120000/camera_recording_20260205_120000_seg001.mp4 \
+python3.10 uploader.py --file videos/BB003_20260414T140000+0900_topview_video.mp4 \
   --folder <drive_folder_id>
 ```
+
+**Notes**
+- Files not matching the M2 naming convention are skipped with a warning (legacy filenames are not auto-routed).
+- `.recording_` prefixed files (in-progress segments) are always skipped.
+- `--delete-local` only removes files after MD5 verification succeeds.
 
 ### Command Line Arguments
 

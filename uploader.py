@@ -36,8 +36,8 @@ class UploadConfig:
     oauth_console: bool
     root_folder_id: Optional[str]
     shared_drive_id: Optional[str]
-    product_name: str
     branch_id: str
+    branch_name: str
     min_age_seconds: int
     delete_local: bool
     verify_md5: bool
@@ -132,6 +132,7 @@ def ensure_drive_path(service, root_id: str, parts: List[str], shared_drive_id: 
 
 
 def parse_session_datetime(session_name: str) -> Optional[datetime]:
+    """Legacy: parse session_YYYYMMDD_HHMMSS dir name. Kept for backward compat; unused by M3 flow."""
     match = re.match(r"session_(\d{8})_(\d{6})", session_name)
     if not match:
         return None
@@ -142,33 +143,66 @@ def parse_session_datetime(session_name: str) -> Optional[datetime]:
         return None
 
 
+_SEGMENT_FILENAME_RE = re.compile(
+    r"^(?P<branch>[^_]+)_(?P<date>\d{8})T(?P<time>\d{6})\+0900_(?P<label>[^.]+)\.(?P<ext>mp4|srt)$"
+)
+
+
+def parse_segment_filename(name: str) -> Optional[datetime]:
+    """Parse M2 segment filename '{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{label}.{ext}' → KST datetime."""
+    m = _SEGMENT_FILENAME_RE.match(name)
+    if not m:
+        return None
+    try:
+        return datetime.strptime(m["date"] + m["time"], "%Y%m%d%H%M%S").replace(tzinfo=KST)
+    except ValueError:
+        return None
+
+
+def build_drive_path_parts(branch_id: str, branch_name: str, dt: datetime) -> List[str]:
+    """Compose Drive folder path parts for a segment with KST datetime dt."""
+    return [
+        "barisbrew-recorded-datas",
+        f"{branch_id}({branch_name})",
+        dt.strftime("%Y-%m"),
+        dt.strftime("%Y%m%d"),
+    ]
+
+
 def collect_session_files(session_dir: str) -> List[str]:
-    """Collect session files, excluding standalone SRT files that have a matching MP4."""
-    files = []
+    """Collect session files for upload.
+
+    Rules (M3):
+    - Skip all `.srt` files. SRT is embedded into MP4 via transcode_for_drive during upload.
+    - Skip files with `.recording_` prefix (segment still being written by recorder).
+    - Skip `upload_ledger.json`.
+    - Log a warning for orphaned `.srt` (no matching `.mp4`) — indicates a crashed segment.
+    """
+    mp4_files = []
     all_names = set()
     for entry in os.scandir(session_dir):
         if not entry.is_file():
             continue
-        if entry.name == "upload_ledger.json":
+        name = entry.name
+        if name == "upload_ledger.json":
             continue
-        all_names.add(entry.name)
-        files.append(entry.path)
+        if name.startswith(".recording_"):
+            continue
+        all_names.add(name)
+        if name.endswith(".mp4"):
+            mp4_files.append(entry.path)
 
-    # Find SRT files whose matching MP4 exists (they'll be embedded during transcode)
-    skip_srt = set()
+    # Warn on orphan SRTs (SRT with no matching MP4)
     for name in all_names:
         if not name.endswith(".srt"):
             continue
-        # Match: seg001.srt -> seg001.mp4, seg001_timestamps.srt -> seg001.mp4
-        base = name[:-4]  # remove .srt
+        base = name[:-4]
         if base.endswith("_timestamps"):
             base = base[: -len("_timestamps")]
-        mp4_name = base + ".mp4"
-        if mp4_name in all_names:
-            skip_srt.add(name)
+        if (base + ".mp4") not in all_names:
+            logging.warning("Orphan SRT (no matching MP4), skipping: %s", name)
 
-    filtered = [f for f in files if os.path.basename(f) not in skip_srt]
-    return sorted(filtered)
+    return sorted(mp4_files)
 
 
 def find_srt_for_mp4(mp4_path: str) -> Optional[str]:
@@ -283,6 +317,11 @@ def upload_file_to_folder(
     shared_drive_id: Optional[str] = None,
 ) -> Tuple[str, bool]:
     name = os.path.basename(local_path)
+
+    if dry_run:
+        logging.info("Dry run: would upload %s → parent=%s", local_path, parent_id)
+        return "", False
+
     local_size = os.path.getsize(local_path)
     local_md5 = compute_md5(local_path) if verify_md5 else None
 
@@ -292,10 +331,6 @@ def upload_file_to_folder(
             if not verify_md5 or item.get("md5Checksum") == local_md5:
                 logging.info("Skip (already exists): %s", name)
                 return item["id"], True
-
-    if dry_run:
-        logging.info("Dry run: would upload %s", local_path)
-        return "", False
 
     mimetype, _ = mimetypes.guess_type(local_path)
     media = MediaFileUpload(local_path, mimetype=mimetype, resumable=True)
@@ -348,35 +383,11 @@ def upload_session(
     session_dir: str,
     config: UploadConfig,
 ) -> int:
-    session_name = os.path.basename(os.path.abspath(session_dir))
-    session_dt = parse_session_datetime(session_name)
-    if session_dt is None:
-        mtime = datetime.fromtimestamp(os.path.getmtime(session_dir), tz=KST)
-        session_dt = mtime
-        logging.warning("Session name not parseable, using mtime: %s", session_dt.isoformat())
-
     if not config.root_folder_id:
         raise ValueError("root_folder_id is required for session uploads")
-
-    # Align to 10-min boundary: floor minutes to 0/10/20/30/40/50
-    aligned_minute = (session_dt.minute // 10) * 10
-    time_slot = f"{session_dt.hour:02d}-{aligned_minute:02d}"
-    path_parts = [
-        "recording_datas",
-        config.product_name,
-        config.branch_id,
-        session_dt.strftime("%Y"),
-        session_dt.strftime("%m"),
-        session_dt.strftime("%d"),
-        time_slot,
-    ]
-    target_folder_id = ensure_drive_path(
-        service,
-        config.root_folder_id,
-        path_parts,
-        shared_drive_id=config.shared_drive_id,
-    )
-    logging.info("Target Drive folder id: %s", target_folder_id)
+    if not config.branch_id or not config.branch_name:
+        raise ValueError("branch_id and branch_name are required for session uploads "
+                         "(set --branch-id/--branch-name or BRANCH_ID/BRANCH_NAME env)")
 
     ledger_path = os.path.join(session_dir, "upload_ledger.json")
     ledger = load_ledger(ledger_path)
@@ -385,15 +396,39 @@ def upload_session(
         logging.info("No files found in session: %s", session_dir)
         return 0
 
+    folder_cache: Dict[str, str] = {}
     uploaded = 0
     now = time.time()
     tmp_dir = tempfile.mkdtemp(prefix="uploader_transcode_")
     try:
         for local_path in files:
+            basename = os.path.basename(local_path)
+            segment_dt = parse_segment_filename(basename)
+            if segment_dt is None:
+                logging.warning("Skip (unparseable filename, not M2 convention): %s", basename)
+                continue
+
             age = now - os.path.getmtime(local_path)
             if config.min_age_seconds and age < config.min_age_seconds:
                 logging.info("Skip (too recent): %s", local_path)
                 continue
+
+            path_parts = build_drive_path_parts(config.branch_id, config.branch_name, segment_dt)
+            cache_key = "/".join(path_parts[2:])  # YYYY-MM/YYYYMMDD
+            target_folder_id = folder_cache.get(cache_key)
+            if target_folder_id is None:
+                if config.dry_run:
+                    target_folder_id = f"<dry-run:{'/'.join(path_parts)}>"
+                    logging.info("Dry run: would ensure folder %s", "/".join(path_parts))
+                else:
+                    target_folder_id = ensure_drive_path(
+                        service,
+                        config.root_folder_id,
+                        path_parts,
+                        shared_drive_id=config.shared_drive_id,
+                    )
+                    logging.info("Resolved Drive folder: %s → %s", "/".join(path_parts), target_folder_id)
+                folder_cache[cache_key] = target_folder_id
 
             try:
                 upload_path = local_path
@@ -466,10 +501,12 @@ def build_config(args: argparse.Namespace) -> UploadConfig:
     oauth_client_path = args.oauth_client or os.environ.get("GOOGLE_OAUTH_CLIENT")
     oauth_token_path = args.token_path or os.environ.get("GOOGLE_OAUTH_TOKEN")
     auth_mode = args.auth_mode
-    if auth_mode == "service" and not service_account_path:
-        raise ValueError("Service account JSON path required (use --service-account or GOOGLE_APPLICATION_CREDENTIALS)")
-    if auth_mode == "oauth" and not oauth_client_path:
-        raise ValueError("OAuth client JSON required (use --oauth-client or GOOGLE_OAUTH_CLIENT)")
+    # Auth validation skipped in dry-run: no API calls will be made.
+    if not args.dry_run:
+        if auth_mode == "service" and not service_account_path:
+            raise ValueError("Service account JSON path required (use --service-account or GOOGLE_APPLICATION_CREDENTIALS)")
+        if auth_mode == "oauth" and not oauth_client_path:
+            raise ValueError("OAuth client JSON required (use --oauth-client or GOOGLE_OAUTH_CLIENT)")
 
     return UploadConfig(
         auth_mode=auth_mode,
@@ -479,8 +516,8 @@ def build_config(args: argparse.Namespace) -> UploadConfig:
         oauth_console=args.oauth_console,
         root_folder_id=args.root_folder or os.environ.get("UPLOAD_ROOT_ID"),
         shared_drive_id=args.shared_drive_id or os.environ.get("UPLOAD_SHARED_DRIVE_ID"),
-        product_name=args.product_name or os.environ.get("PRODUCT_NAME", "baris_brew"),
-        branch_id=args.branch_id or os.environ.get("BRANCH_ID", "test_branch"),
+        branch_id=args.branch_id or os.environ.get("BRANCH_ID", ""),
+        branch_name=args.branch_name or os.environ.get("BRANCH_NAME", ""),
         min_age_seconds=args.min_age_seconds,
         delete_local=args.delete_local,
         verify_md5=args.verify_md5,
@@ -495,8 +532,8 @@ def main():
     parser.add_argument("--token-path", help="Path to OAuth token cache file")
     parser.add_argument("--root-folder", help="Drive folder ID for recordings root")
     parser.add_argument("--shared-drive-id", help="Shared Drive ID (optional)")
-    parser.add_argument("--product-name", help="Product/service name (PRODUCT_NAME, default: baris_brew)")
-    parser.add_argument("--branch-id", help="Branch identifier (BRANCH_ID, default: test_branch)")
+    parser.add_argument("--branch-id", help="Branch identifier (env: BRANCH_ID), e.g. BB003")
+    parser.add_argument("--branch-name", help="Branch display name (env: BRANCH_NAME), e.g. 성수본점")
     parser.add_argument("--min-age-seconds", type=int, default=30, help="Skip files newer than this many seconds")
     parser.add_argument("--delete-local", action="store_true", help="Delete local files after verified upload")
     parser.add_argument("--verify-md5", action="store_true", help="Verify MD5 checksum after upload")
@@ -515,7 +552,9 @@ def main():
     logging.basicConfig(level=args.log_level.upper(), format="%(asctime)s %(levelname)s %(message)s")
 
     config = build_config(args)
-    if config.auth_mode == "oauth":
+    if config.dry_run:
+        service = None
+    elif config.auth_mode == "oauth":
         service = build_drive_service_oauth(
             config.oauth_client_path,
             config.oauth_token_path,

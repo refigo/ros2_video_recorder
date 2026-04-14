@@ -1,38 +1,34 @@
 # Google Drive Upload Spec
 
-Last updated: 2026-02-25
+Last updated: 2026-04-14
 
 ## Objective
 
-Upload recorded data (video segments, sidecars, and future joint logs) to Google Drive
-on a **10-minute aligned schedule**, organized by product/branch/time hierarchy.
+Upload recorded data (video segments, sidecars, and future joint logs) to Google Drive on an **hourly cron-driven** schedule, organized by **branch / month / day** hierarchy. Paths are derived per-file from the M2 filename convention, enabling a flat local `videos/` directory and day-boundary-safe routing.
 
-## Target Folder Structure
+## Target Folder Structure (M3)
 
 ```
-recording_datas/
-  └── <product>/                  # e.g. baris_brew
-        └── <branch_id>/          # e.g. gangnam_01
-              └── <YYYY>/
-                    └── <MM>/
-                          └── <DD>/
-                                └── <HH>-<mm>/   # 10-min window, e.g. 14-30
-                                      ├── seg_20260225_143000.mp4
-                                      ├── seg_20260225_143000_timestamps.csv
-                                      ├── seg_20260225_143000_timestamps.srt
-                                      └── seg_20260225_143500.mp4 ...
+barisbrew-recorded-datas/
+  └── <BRANCH_ID>(<BRANCH_NAME>)/   # e.g. BB003(성수본점)
+        └── <YYYY-MM>/              # e.g. 2026-04
+              └── <YYYYMMDD>/       # e.g. 20260414
+                    ├── BB003_20260414T140000+0900_topview_video.mp4
+                    ├── BB003_20260414T150000+0900_topview_video.mp4
+                    └── ...
 ```
 
-- `<product>`: 제품/서비스 이름 (env: `PRODUCT_NAME`, default `baris_brew`)
-- `<branch_id>`: 지점 식별자 (env: `BRANCH_ID`, default `test_branch`)
-- 시계열: `YYYY/MM/DD/HH-mm` — 10분 정각 기준 (00, 10, 20, 30, 40, 50)
+- `<BRANCH_ID>`: 지점 코드 (env: `BRANCH_ID`, CLI: `--branch-id`, required)
+- `<BRANCH_NAME>`: 지점 표시명 (env: `BRANCH_NAME`, CLI: `--branch-name`, required)
+- 월/일: 파일명에서 파싱 (`{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{label}.mp4`)
+- SRT는 업로드 시 `transcode_for_drive`로 MP4에 임베딩 (`mov_text`) → 별도 업로드 없음
 
-## Upload Cadence
+## Upload Cadence (M4 scope)
 
-- Recording: 10-minute segments aligned to wall-clock boundaries (`:00`, `:10`, `:20`, …)
-- Upload trigger: segment가 완료(close)되면 즉시 업로드 큐에 추가
-- Upload window: 이전 segment가 close된 후 `MIN_AGE_SECONDS` (default 30s) 이후 업로드 시작
-- Retry: 실패 시 exponential backoff (max 3 retries per segment)
+- Recording: 1-hour segments aligned to wall-clock `:00` (M2 완료)
+- Upload trigger: cron `1 * * * *` (매시 :01) — 세그먼트 전환 후 60초 버퍼
+- Upload window: `min-age-seconds` (default 30s) — 파일 완료 확정 후
+- 중복 방지: MD5 기반 dedup. 검증 성공 시 로컬 삭제 (`--delete-local`).
 
 ## Authentication Strategy
 
@@ -56,10 +52,11 @@ recording_datas/
 5. 업로드 실행:
    ```bash
    export UPLOAD_ROOT_ID=<개인Drive_폴더_id>
-   python3 uploader.py --auth-mode oauth \
+   python3.10 uploader.py --auth-mode oauth \
      --oauth-client keys/client_secrets.json \
      --token-path keys/gdrive_token.json \
-     --session videos/session_20260225_120000
+     --branch-id BB003 --branch-name "성수본점" \
+     --session videos/
    ```
 
 **토큰 수명:** access token 1시간, refresh token으로 자동 갱신. 6개월 미사용 시 만료.
@@ -81,20 +78,20 @@ recording_datas/
    export GOOGLE_APPLICATION_CREDENTIALS=/path/to/sa_key.json
    export UPLOAD_ROOT_ID=<회사Drive_폴더_id>
    export UPLOAD_SHARED_DRIVE_ID=<shared_drive_id>  # Shared Drive 사용 시
-   python3 uploader.py --auth-mode service \
-     --session videos/session_20260225_120000
+   export BRANCH_ID=BB003
+   export BRANCH_NAME=성수본점
+   python3.10 uploader.py --auth-mode service --session videos/
    ```
 
 ## Configuration Keys
 
 | Key | Env Var | Default | Description |
 |-----|---------|---------|-------------|
-| product | `PRODUCT_NAME` | `baris_brew` | 제품/서비스명 |
-| branch_id | `BRANCH_ID` | `test_branch` | 지점 식별자 |
+| branch_id | `BRANCH_ID` | — (required) | 지점 코드 (e.g. `BB003`) |
+| branch_name | `BRANCH_NAME` | — (required) | 지점 표시명 (e.g. `성수본점`) |
 | root_folder_id | `UPLOAD_ROOT_ID` | — (required) | Drive 최상위 폴더 ID |
 | shared_drive_id | `UPLOAD_SHARED_DRIVE_ID` | — (optional) | Shared Drive ID |
 | auth_mode | — | `service` | `service` or `oauth` |
-| segment_duration | — | `600` (10 min) | 세그먼트 길이(초) |
 | min_age_seconds | — | `30` | 업로드 전 대기 시간 |
 | delete_local | — | `false` | 업로드 후 로컬 삭제 여부 |
 | verify_md5 | — | `false` | MD5 검증 여부 |
@@ -103,9 +100,8 @@ recording_datas/
 
 | Type | Format | Status |
 |------|--------|--------|
-| Video segments | `.mp4` | Implemented |
-| Timestamp CSV | `_timestamps.csv` | Implemented |
-| Timestamp SRT | `_timestamps.srt` | Implemented |
+| Video segments | `.mp4` (H.264, yuv420p, +faststart) | Implemented (M2) |
+| SRT subtitles | `.srt` (임베딩 전용, Drive 업로드 시 MP4에 삽입) | Implemented (M2/M3) |
 | Robot arm joints | `_joints.parquet` | Planned |
 | Session metadata | `_metadata.json` | Planned |
 
