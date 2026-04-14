@@ -7,26 +7,29 @@ A Python utility to record ROS2 camera topics to video files using either OpenCV
 - Record ROS2 Image topics to MP4 video files
 - Support for both OpenCV and FFmpeg backends
 - Configurable FPS and video codecs
-- Automatic timestamp-based file naming
-- **Segmented recording** - automatically split videos into timed segments
-- Real-time frame counting and logging
-- Preset durations for testing (10s), 10 minutes, or 1 hour segments
+- **Wall-clock aligned 1-hour segments** (split at every `:00` by default)
+- **File-based state machine** — `.recording_*.mp4/.srt` during recording, renamed to final on completion
+- **Real-time SRT timestamps** — crash-safe, entries flushed to disk per second
+- Multi-camera support via `--video-label` (e.g. `topview_video`, `gripper_video`)
+- Branch-aware naming: `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.mp4`
 
 ## Requirements
 
-- ROS2 (Humble/Iron/Jazzy)
-- Python 3.8+
+- ROS2 Humble (primary target; see `docs/study/ros2_humble_env_setup.md` for env setup)
+- **Python 3.10** (system interpreter bound to ROS2 Humble)
+- **NumPy 1.x** (2.x is incompatible with ROS2 Humble's `cv_bridge`)
 - OpenCV
-- FFmpeg (optional, for FFmpeg backend)
+- FFmpeg (required for `--ffmpeg` mode, recommended for H.264 output)
 
 ## Installation
 
 ### Prerequisites
-- ROS2 (Humble/Iron/Jazzy) must be installed
-- The following ROS2 packages should be available:
+- ROS2 Humble installed at `/opt/ros/humble/`
+- The following ROS2 packages available:
   - `ros-humble-rclpy`
-  - `ros-humble-sensor-msgs` 
+  - `ros-humble-sensor-msgs`
   - `ros-humble-cv-bridge`
+- System `/usr/bin/python3.10` (do NOT use uv/conda/pyenv Python for ROS2 — see env setup doc)
 
 ### Setup
 
@@ -35,54 +38,76 @@ A Python utility to record ROS2 camera topics to video files using either OpenCV
 source /opt/ros/humble/setup.bash
 ```
 
-2. **Install additional Python dependencies** (if needed):
+2. **Pin NumPy to 1.x** (required — NumPy 2.x segfaults with `cv_bridge`):
 ```bash
-pip install numpy
+/usr/bin/python3.10 -m pip install --user 'numpy<2'
 ```
 
-3. **For FFmpeg support** (optional, for better video compression):
+3. **Install FFmpeg**:
 ```bash
 sudo apt update
 sudo apt install ffmpeg
 ```
 
-4. **Make scripts executable**:
+4. **Verify the environment**:
 ```bash
-chmod +x record_camera.sh
+python3.10 -c "import rclpy; from cv_bridge import CvBridge; import numpy as np; print('numpy:', np.__version__)"
+# expected: numpy: 1.26.x
 ```
+
+> **Important:** If you use uv/conda/pyenv for other projects, invoke this recorder with `python3.10` explicitly (absolute path: `/usr/bin/python3.10`) to avoid Python version conflicts. See `docs/study/ros2_humble_env_setup.md` for full guidance including venv-based isolation.
 
 ## Usage
 
 ### Basic Usage
 
-Record the default camera topic:
+Record with a branch ID (required):
 ```bash
-python3 camera_recorder.py
+python3.10 camera_recorder.py --branch-id BB003 --ffmpeg
 ```
+
+Default behavior:
+- Topic: `/camera/color/image_raw`
+- Output directory: `videos/`
+- Video label: `topview_video`
+- Segmentation: wall-clock aligned, splits at every `:00`
+- File naming: `BB003_20260414T140000+0900_topview_video.mp4` + `.srt`
 
 ### Advanced Usage
 
 ```bash
-# Specify custom topic and output file
-python3 camera_recorder.py --topic /my_camera/image_raw --output my_video.mp4
+# Custom topic and output directory
+python3.10 camera_recorder.py --branch-id BB003 --topic /my_camera/image_raw --output-dir /data/recordings --ffmpeg
 
-# Use FFmpeg backend for better compression
-python3 camera_recorder.py --ffmpeg --fps 60
+# Gripper camera with different label (second recorder instance)
+python3.10 camera_recorder.py --branch-id BB003 --video-label gripper_video --topic /gripper/camera/image_raw --ffmpeg
 
-# Specify video codec (OpenCV only)
-python3 camera_recorder.py --codec h264
+# Testing with short segments (overrides wall-clock alignment)
+python3.10 camera_recorder.py --branch-id TEST --segment 10 --ffmpeg
 
-# Segmented recording examples
-python3 camera_recorder.py --segment-preset test    # 10-second segments for testing
-python3 camera_recorder.py --segment-preset 10min   # 10-minute segments
-python3 camera_recorder.py --segment-preset 1hour   # 1-hour segments
-python3 camera_recorder.py --segment 30             # Custom 30-second segments
-
-# Use the shell script
-./record_camera.sh /camera/color/image_raw my_recording.mp4
+# OpenCV backend (no ffmpeg)
+python3.10 camera_recorder.py --branch-id BB003 --codec h264
 ```
 
+### File Outputs
+
+During recording:
+```
+videos/.recording_BB003_20260414T140000+0900_topview_video.mp4
+videos/.recording_BB003_20260414T140000+0900_topview_video.srt
+```
+
+After segment completion (rename happens automatically):
+```
+videos/BB003_20260414T140000+0900_topview_video.mp4
+videos/BB003_20260414T140000+0900_topview_video.srt
+```
+
+The `.recording_` prefix lets downstream tools (cron uploader, M4) identify completed vs. in-progress segments.
+
 ### Google Drive Upload (Preview)
+
+> **Note:** The upload paths and folder structure described below reflect pre-M2 conventions. M3 (in progress — see `docs/management/upload_milestones.md`) changes the folder layout to `barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`, and M4 integrates upload with SRT embedding into a single cron script. The examples below still work for manual uploads during transition.
 
 The uploader ships completed session files to Google Drive using a service account.
 
@@ -142,13 +167,14 @@ python3 uploader.py --file videos/session_20260205_120000/camera_recording_20260
 
 ### Command Line Arguments
 
+- `--branch-id` **(required)**: Branch identifier (e.g., `BB003`)
+- `--video-label`: Video label for filename (default: `topview_video`)
 - `--topic, -t`: Camera topic name (default: `/camera/color/image_raw`)
-- `--output, -o`: Output video file (default: auto-generated with timestamp)
+- `--output-dir, -o`: Output directory (default: `videos/`)
 - `--fps, -f`: Output video FPS (default: 30)
-- `--ffmpeg`: Use FFmpeg instead of OpenCV for encoding
+- `--ffmpeg`: Use FFmpeg (libx264) instead of OpenCV for encoding (recommended)
 - `--codec, -c`: Video codec - mp4v, xvid, h264 (OpenCV only, default: mp4v)
-- `--segment, -s`: Segment duration in seconds (e.g., 10, 600, 3600)
-- `--segment-preset`: Preset durations - test (10s), 10min (600s), 1hour (3600s)
+- `--segment, -s`: Fixed segment duration in seconds (overrides wall-clock alignment; use for testing)
 
 ## Backends
 
@@ -167,28 +193,30 @@ python3 uploader.py --file videos/session_20260205_120000/camera_recording_20260
 
 ## Segmented Recording
 
-The recorder can automatically split recordings into multiple video files based on time duration. This is useful for:
+The recorder splits recordings into multiple video files. Default behavior is **wall-clock aligned**: segments switch at every `:00` (hourly boundary). Each segment is a self-contained MP4 + SRT pair.
 
-- **Testing**: Short 10-second segments to verify functionality
-- **Long recordings**: Manageable file sizes (10-minute or 1-hour segments)
-- **Continuous recording**: Prevents single large files that might be corrupted
-- **Storage management**: Easier to handle multiple smaller files
+Use `--segment N` to override with fixed-duration segments (useful for testing).
 
 ### Segment File Naming
 
-Segmented files are automatically named with sequential numbers:
 ```
-camera_recording_20240731_110330_seg001.mp4
-camera_recording_20240731_110330_seg002.mp4
-camera_recording_20240731_110330_seg003.mp4
+{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.mp4
+{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.srt
+```
+
+Example (24-hour recording starting at 14:23):
+```
+BB003_20260414T142305+0900_topview_video.mp4   ← first segment (short, ~37 min)
+BB003_20260414T150000+0900_topview_video.mp4   ← :00 aligned
+BB003_20260414T160000+0900_topview_video.mp4
 ...
 ```
 
 ### Segment Switching
 
-- Seamless transition between segments (no frame loss)
-- Each segment is properly closed before starting the next
-- Timer-based switching ensures consistent segment durations
+- Seamless transition — each segment is properly closed before starting the next
+- During recording: `.recording_*.mp4` + `.recording_*.srt` (in-progress marker)
+- On segment completion: rename removes `.recording_` prefix
 - Recording can be stopped at any time with Ctrl+C
 
 ## Example Output
@@ -196,38 +224,48 @@ camera_recording_20240731_110330_seg003.mp4
 ```
 Camera recorder initialized
 Topic: /camera/color/image_raw
-Output: camera_recording_20240729_143852.mp4
+Output: videos/BB003_20260414T142305+0900_topview_video.mp4
 FPS: 30
-Using FFmpeg: False
+Using FFmpeg: True
+Starting camera recorder...
+Branch ID: BB003
+Video label: topview_video
 Recording started - Resolution: 640x480
+Segmentation: wall-clock aligned (split at every :00)
+Next segment switch in 2215s
 Recorded 30 frames
 Recorded 60 frames
 ...
+Switching to segment 2...
+Segment completed: videos/BB003_20260414T142305+0900_topview_video.mp4 (2215.0s)
+Started recording: videos/BB003_20260414T150000+0900_topview_video.mp4
 ^C
-Stopping recording... Total frames: 1247
-Recording saved to: /home/user/camera_recording_20240729_143852.mp4
+Recording completed - 2 segment(s) saved to videos/
 ```
 
 ## Troubleshooting
 
-1. **No frames received**: Check if the camera topic is publishing
+1. **`ModuleNotFoundError: No module named 'rclpy._rclpy_pybind11'`**: Python version mismatch.
+   - Cause: `python3` points to 3.11/3.12 (e.g., uv-managed) but ROS2 Humble needs 3.10.
+   - Fix: Call `python3.10 camera_recorder.py ...` explicitly. See `docs/study/ros2_humble_env_setup.md`.
+
+2. **`AttributeError: _ARRAY_API not found` / segfault in `imgmsg_to_cv2`**: NumPy version mismatch.
+   - Cause: NumPy 2.x installed; ROS2 Humble `cv_bridge` requires NumPy 1.x.
+   - Fix: `/usr/bin/python3.10 -m pip install --user 'numpy<2'`
+
+3. **No frames received**: Verify the camera topic is publishing
    ```bash
    ros2 topic list
    ros2 topic echo /camera/color/image_raw --once
    ```
 
-2. **Video writer failed**: Try different codec or use FFmpeg backend
+4. **Video writer failed**: Try FFmpeg backend (`--ffmpeg`) instead of default OpenCV.
 
-3. **Permission denied**: Make the script executable
-   ```bash
-   chmod +x record_camera.sh
-   ```
-
-4. **FFmpeg not found**: Install FFmpeg or use OpenCV backend
+5. **FFmpeg not found**: Install with `sudo apt install ffmpeg`.
 
 ## Notes
 
 - The recorder automatically detects image dimensions from the first frame
-- Recording stops gracefully with Ctrl+C
-- Output files are saved in the current directory unless full path is specified
-- Frame rate in output video may differ from topic publishing rate
+- Recording stops gracefully with Ctrl+C — final segment is renamed and SRT closed
+- Frame rate in output video is corrected via frame duplication when input FPS < output FPS
+- See `docs/history/` for implementation history, `docs/management/upload_milestones.md` for roadmap

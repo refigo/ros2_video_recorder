@@ -1,6 +1,6 @@
 # Google Drive Upload Milestones
 
-Last updated: 2026-04-13
+Last updated: 2026-04-14
 
 ## References
 - `docs/spec/upload_spec.md` (인증 전략, 폴더 구조, 설정 키)
@@ -10,21 +10,21 @@ Last updated: 2026-04-13
 ## Current Status
 
 ### Implemented
-- Video recording with 10-min segmented output
+- Video recording with segmented output
 - **FFmpeg H.264 녹화** (`--ffmpeg`, libx264 + yuv420p) — Drive 브라우저 재생 호환
-- Per-segment timestamp sidecars (`*_timestamps.csv`, `*_timestamps.srt`)
 - **업로드 시 SRT 자막 임베딩** (mov_text, `-c:v copy` 무손상) — Drive CC 자막 지원
 - `uploader.py`: OAuth + Service Account 인증, 세션 업로드, 파일 업로드, MD5 검증, 중복 skip, 로컬 삭제
-- **폴더 구조**: `recording_datas/product/branch_id/YYYY/MM/DD/HH-mm/` (10분 정각 정렬)
+- **폴더 구조 (구)**: `recording_datas/product/branch_id/YYYY/MM/DD/HH-mm/` (10분 정각 정렬) — M3에서 변경 예정
 - `scripts/generate_oauth_token.py`: OAuth 토큰 생성 스크립트
+- **파일 네이밍 컨벤션 (M2 완료)**: `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.{mp4,srt}`
+- **Wall-clock 1시간 정각 정렬 세그먼트 (M2 완료)**: 매시 `:00`에 세그먼트 전환
+- **`.recording_` prefix + rename (M2 완료)**: 녹화 중 파일은 `.recording_` prefix, 세그먼트 완료 시 최종 이름으로 rename (M4 cron 파이프라인 준비)
+- **SRT 실시간 append (M2 완료)**: 프레임별 SRT 엔트리 파일 직접 기록 — crash safety 확보
+- **CSV timestamps 제거 (M2 완료)**: SRT로 일원화
 
 ### Not Yet Done
-- 1시간 정각 정렬 녹화 (wall-clock aligned 1-hour segments)
-- `--video-label` 설정 (default: `topview_video`, 추후 gripper 등 확장)
 - 업로드 디렉토리 구조 변경 (`barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/`)
-- 파일 네이밍 컨벤션 확립 및 적용
 - Shared Drive 업로드 테스트 (구현 완료, 검증 필요)
-- SRT 실시간 기록 (crash safety) + CSV 제거
 - SRT 임베딩 워커 (세그먼트 완료 후 별도 프로세스로 remux)
 - Cron 기반 자동 업로드 (매시 :01) + MD5 검증 후 로컬 삭제
 - systemd (녹화) + crontab (업로드) 배포 세팅
@@ -61,30 +61,27 @@ Last updated: 2026-04-13
 
 ---
 
-### M2: 파일 네이밍 컨벤션 + 1시간 정각 정렬 세그먼트
+### M2: 파일 네이밍 컨벤션 + 1시간 정각 정렬 세그먼트 ✅ 완료 (2026-04-14)
 **Goal:** 파일 네이밍 확립, 녹화 세그먼트가 wall-clock 1시간 정각 경계에 맞춰 분할
-**Deadline:** 2026-04-15 (화)
+
+**Reference:** `docs/history/07_m2_naming_wall_clock_srt_20260414_*/`
 
 **Tasks:**
-- [ ] 파일 네이밍 컨벤션 확립:
+- [x] 파일 네이밍 컨벤션 확립:
   - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.mp4`
   - `{BRANCH_ID}_{YYYYMMDD}T{HHMMSS}+0900_{video_label}.srt`
-  - `BRANCH_ID`, `BRANCH_NAME` 환경변수/CLI 인자 추가
-- [ ] `--video-label` CLI 인자 추가 (default: `topview_video`)
-  - RealSense RGB → `topview_video`, 추후 gripper → `gripper_video` 등
-  - 다중 카메라 시 각각 다른 label로 recorder 인스턴스 실행
-- [ ] `camera_recorder.py`에 wall-clock aligned 1시간 segmentation 구현
-  - 현재: 시작 시점 기준 duration
-  - 변경: 정각 기준 매시 `:00`에 세그먼트 전환
-  - 첫 세그먼트는 짧을 수 있음 (e.g. 14:23 시작 → 15:00에 첫 분할)
-- [ ] 녹화 중 파일은 `.recording_` prefix로 작성, 세그먼트 완료 시 최종 이름으로 rename
-- [ ] SRT 파일을 녹화 중 실시간 append 방식으로 기록 (crash safety)
-  - 기존: `frame_records` 리스트에 메모리 누적 → 세그먼트 완료 시 일괄 작성
-  - 변경: 매 프레임마다 SRT 엔트리를 파일에 직접 append
-  - PC 갑작스런 종료 시에도 마지막 기록까지 SRT 파일에 남아있음
-- [ ] CSV timestamps 파일 제거 (SRT 임베딩으로 대체)
+  - `--branch-id` CLI 인자 추가 (required)
+- [x] `--video-label` CLI 인자 추가 (default: `topview_video`)
+- [x] `camera_recorder.py`에 wall-clock aligned 1시간 segmentation 구현
+  - 매시 `:00`에 세그먼트 전환 (seconds until next hour 계산)
+- [x] 녹화 중 파일은 `.recording_` prefix로 작성, 세그먼트 완료 시 최종 이름으로 rename
+- [x] SRT 파일을 녹화 중 실시간 append 방식으로 기록 (crash safety)
+- [x] CSV timestamps 파일 제거 (SRT로 일원화)
 
-**Acceptance:** 파일명이 `BB003_20260413T140000+0900_topview_video.mp4` 패턴, 1시간 정각 경계 분할, SRT 실시간 기록 확인
+**Acceptance:** ✅ E2E 24h 녹화 테스트로 검증 — `videos/MGOTEST_20260413T200000+0900_topview_video.{mp4,srt}` 등 정각 정렬 확인, `.recording_` → 최종 rename 확인, SRT 실시간 기록 확인
+
+**Deferred to M3:**
+- `BRANCH_NAME` CLI 인자 (M3 업로드 폴더 구조에서 함께 처리)
 
 ---
 
@@ -214,15 +211,15 @@ Last updated: 2026-04-13
 ## Execution Order
 
 ```
-M0 ✅ → M1 ✅ → M2 (네이밍+정각정렬) → M3 (업로드구조+SharedDrive) → M4 (임베딩+cron+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
-                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+M0 ✅ → M1 ✅ → M2 ✅ → M3 (업로드구조+SharedDrive) → M4 (임베딩+cron+삭제) → M5 (systemd+cron) → M6 (E2E 검증)
+                       ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
                                        이번 주 목표 (2026-04-13 ~ 2026-04-19)
                                                                               → M7 (SA 전환)
                                                                               → M8 (모니터링)
                                                                               → M9 (녹화 최적화)
 ```
 
-**Immediate Next Step:** M2 — 파일 네이밍 컨벤션 확립 + `--video-label` + 1시간 정각 정렬 세그먼트 구현.
+**Immediate Next Step:** M3 — 업로드 디렉토리 구조 변경 (`barisbrew-recorded-datas/{BRANCH_ID}({BRANCH_NAME})/...`) + Shared Drive 업로드 검증.
 
 ## Risks / Open Questions
 - Google Drive API 일일 할당량: 기본 10억 쿼리/일이지만 업로드 대역폭 제한 확인 필요
