@@ -123,8 +123,8 @@ Last updated: 2026-04-14 (M4 완료: embed+cron 스크립트 + live E2E)
 
 **Tasks:**
 - [x] `scripts/embed_srt.py` — standalone embed 모듈 + CLI (atomic .embedding.tmp → os.replace → srt 삭제)
-- [x] `scripts/upload_cron.py` — embed + uploader 오케스트레이터, env 기반 설정
-- [x] `scripts/upload_cron.sh` — cron 래퍼 (`/etc/ros2-recorder/uploader.env` 로드 + `/usr/bin/python3.10` 호출)
+- [x] `scripts/deliver.py` — embed + uploader 오케스트레이터, env 기반 설정
+- [x] `scripts/deliver.sh` — cron 래퍼 (`/etc/ros2-recorder/uploader.env` 로드 + `/usr/bin/python3.10` 호출)
 - [x] Idempotent 복구: stale `.embedding.tmp` 정리, 이미 임베딩된 mp4 + orphan srt → srt만 삭제
 - [x] Per-file 실패 격리 (한 파일 실패가 나머지 업로드를 막지 않음)
 - [x] `min-age-seconds=30` 기본값 — segment 전환 후 60초 버퍼 보장
@@ -133,7 +133,7 @@ Last updated: 2026-04-14 (M4 완료: embed+cron 스크립트 + live E2E)
 - [x] Live dev 검증 — MGOTEST 11MB 파일로 E2E 성공 (embed 0.2s + upload 15.5s, MD5 verify, 로컬 삭제, re-run idempotent)
 - [ ] crontab 실제 등록 → M5 범위 (스크립트는 준비 완료)
 
-**Acceptance:** ✅ `upload_cron.py` 한 번 실행으로 embed → upload → verify → delete 순차 완료. Re-run 시 "no files" 출력 + exit 0.
+**Acceptance:** ✅ `deliver.py` 한 번 실행으로 embed → upload → verify → delete 순차 완료. Re-run 시 "no files" 출력 + exit 0.
 
 ---
 
@@ -143,7 +143,7 @@ Last updated: 2026-04-14 (M4 완료: embed+cron 스크립트 + live E2E)
 
 **Tasks:**
 - [ ] `ros2-camera-recorder.service`: 녹화 데몬 (systemd)
-- [ ] crontab 등록 스크립트: `upload_cron` 매시 :01 실행
+- [ ] crontab 등록 스크립트: `deliver` 매시 :01 실행
 - [ ] 환경변수 설정 파일 (`/etc/ros2-recorder/config.env`)
   - `BRANCH_ID`, `BRANCH_NAME`, `GOOGLE_APPLICATION_CREDENTIALS` 등
 - [ ] 설치/배포 스크립트 작성 (systemd + crontab 한번에 세팅)
@@ -224,7 +224,7 @@ M0 ✅ → M1 ✅ → M2 ✅ → M3 ✅ → M4 ✅ → M5 (systemd+cron 배포) 
                                                                               → M9 (녹화 최적화)
 ```
 
-**Immediate Next Step:** M5 — `scripts/upload_cron.sh` + recorder를 systemd/crontab으로 등록, `/etc/ros2-recorder/` 배포 레이아웃 확립.
+**Immediate Next Step:** M5 — `scripts/deliver.sh` + recorder를 systemd/crontab으로 등록, `/etc/ros2-recorder/` 배포 레이아웃 확립.
 
 ## Risks / Open Questions
 - Google Drive API 일일 할당량: 기본 10억 쿼리/일이지만 업로드 대역폭 제한 확인 필요

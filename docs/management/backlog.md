@@ -1,6 +1,6 @@
 # Backlog
 
-Last updated: 2026-04-13
+Last updated: 2026-04-17
 
 이 문서는 즉시 실행하지 않지만 추후 필요한 작업을 관리한다.
 우선순위와 의존성이 확정되면 `upload_milestones.md`의 마일스톤으로 승격한다.
@@ -27,18 +27,30 @@ Last updated: 2026-04-13
 
 ---
 
-### BL-02: CRF 옵션 CLI 노출 (우선순위: 낮음)
+### BL-02: 야간 용량 폭증 해결 + CRF/bitrate 제어 (우선순위: ⭐ 최우선)
 
-**배경:** 현재 CRF 23 하드코딩. LeRobot 기본은 CRF 30.
-HuggingFace 검증에 따르면 CRF 30에서도 학습 성능 차이 없음.
+**배경:** CRF 23(고정 품질) + 저조도 센서 노이즈 → bitrate 27배 편차 (50 kbps ~ 1.35 Mbps). 야간 1시간 세그먼트가 600 MB에 달해 Drive 업로드 시간 + 용량 비효율. 게다가 Drive 웹 플레이어가 400 MB+ 파일 재생 실패하는 경우 발생. **어두울 때 녹화의 중요도가 낮아 용량 대비 효용이 극히 낮음.**
 
-**작업 내용:**
-- [ ] `camera_recorder.py`에 `--crf` CLI 인자 추가 (default: 23)
-- [ ] 저장 공간 vs 화질 트레이드오프 문서화
+**측정 데이터 (MGOTEST 24h 녹화):**
+| 시간대 | Bitrate | 크기/h | 원인 |
+|--------|---------|--------|------|
+| 저녁 (조명 안정) | ~50 kbps | ~22 MB | 정적, 압축 효율 최고 |
+| 자정~새벽 | ~1 Mbps | ~420 MB | 센서 noise grain → inter-frame 예측 실패 |
+| 일출 | ~1.35 Mbps | ~580 MB | noise + 조명 전환 |
+| 오전 (밝음) | ~55 kbps | ~24 MB | 압축 효율 회복 |
 
-**영향:** CRF 30 적용 시 파일 크기 ~60% 절감.
+**작업 내용 (후보 — 조합 가능):**
+- [ ] `--crf` CLI 인자 추가 (default: 23 → 운영은 28~30 권장)
+- [ ] `--maxrate` CLI 인자 추가 (예: `2M`) — VBR 상한 cap → 야간 피크 억제
+- [ ] (리서치) ffmpeg pre-denoise 필터 (`-vf hqdn3d`) — noise 선제거 → 압축 효율 회복, CPU 부하 측정 필요
+- [ ] (리서치) 야간 FPS 감소 (예: 15fps) — 어두운 환경에서 프레임 수 절반 → 용량 절반, 품질 손실 미미
+- [ ] (리서치) RealSense 센서 gain 상한 설정 → 근본 noise 억제
 
-**선행 조건:** 없음
+**M5 (24h E2E 테스트) 전에 최소 CRF + maxrate 적용 필요** — 600 MB 세그먼트가 있으면 E2E 검증 비실용적.
+
+**영향:** CRF 28 + maxrate 2M 조합 시 야간 세그먼트 ~100-150 MB 예상 (현재 대비 75% 절감).
+
+**선행 조건:** 없음 (단독 적용 가능). M6(24h E2E) 전 적용 필수.
 
 ---
 
@@ -142,6 +154,49 @@ H.264 원본에 자막만 임베딩하는 경우(`-c:v copy`)에도 faststart가
 - [ ] 16UC1/32FC1 인코딩 처리, 99th percentile 정규화 기법 문서화
 
 **선행 조건:** 없음
+
+---
+
+## 녹화 안정성
+
+### BL-10: `.recording_` 크래시 복구 로직 (우선순위: 높음)
+
+**배경:** recorder 프로세스가 비정상 종료되면 `.recording_XXX.mp4` + `.recording_XXX.srt` 파일이 남는다. 현재 recorder 시작 시 이 파일들을 복구하는 로직이 없음. 결과: 영원히 "녹화 중" 상태로 남아 embed/upload 파이프라인에서 무시됨.
+
+**작업 내용:**
+- [ ] recorder 시작 시 `videos/`에서 `.recording_*` 파일 검색
+- [ ] 발견 시: `.recording_` prefix 제거하여 "녹화 완료" 상태로 전환 (ffmpeg moov atom 정상 여부 확인 포함)
+- [ ] moov atom 없는 (ffmpeg가 정상 종료 못 한) mp4 → 경고 로그 + `.corrupted_` prefix로 이동 (파이프라인에서 배제)
+- [ ] SIGTERM handler 등록 — systemd stop 시 graceful shutdown (현재 KeyboardInterrupt만 처리)
+
+**선행 조건:** 없음. M5 (systemd) 배포 전 적용 권장.
+
+---
+
+### BL-11: 멀티 카메라 + joints 데이터 수집 아키텍처 리서치 (우선순위: 중간)
+
+**배경:** 추후 gripper view, joint states, 디버깅 토픽 등 multi-source recording 필요. rosbag은 용량이 크므로 경량화 방안 리서치 필요.
+
+**작업 내용:**
+- [ ] 아키텍처 리서치: camera_recorder.py 멀티 인스턴스(각 카메라별) vs 단일 프로세스 멀티 토픽
+- [ ] Joint states: `/joint_states` → Parquet 직접 기록 vs rosbag 필터링 후 변환
+- [ ] rosbag 경량 대안: 선택적 토픽만 bag → 오프라인 추출 vs 실시간 Parquet 기록
+- [ ] 디버깅 토픽: 항상 녹화 vs 이벤트 트리거 녹화
+- [ ] Drive 폴더 구조 확장: `{product}/{branch}/{date}/` 아래 `topview_video.mp4`, `gripper_video.mp4`, `joints.parquet` 등 sidecar 배치
+
+**선행 조건:** 현재 M2-M6 안정화 완료 + BL-05 (joint states 토픽 확보)
+
+---
+
+### BL-12: Drive 웹 플레이어 재생 제한 문서화 (우선순위: 낮음)
+
+**배경:** Google Drive 웹 플레이어는 대용량(400 MB+) H.264 파일 재생 실패 케이스 있음 (야간 저조도 파일에서 관측). Drive 자체 서버사이드 트랜스코딩 한계.
+
+**작업 내용:**
+- [ ] 재생 가능 상한 파일 크기/bitrate 문서화
+- [ ] 대안: VLC/mpv 로컬 스트리밍, Drive API 직접 다운로드
+
+**선행 조건:** BL-02 해결 시 대부분 파일이 재생 가능 크기로 줄어들 것으로 예상.
 
 ---
 

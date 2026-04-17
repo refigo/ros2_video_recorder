@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
-"""Hourly cron orchestrator: embed SRT into MP4, then upload to Google Drive.
+"""Deliver: embed SRT → upload to Drive → MD5 verify → delete local.
 
-Runs two phases on a flat videos directory:
-  1. embed_srt.run(session_dir) — find .mp4/.srt pairs and embed subtitle in-place
-  2. uploader.upload_session(...) — upload embedded mp4 files, verify MD5, delete local
+Processes completed recording files and delivers them to the central Drive archive.
 
-Reads configuration from environment (expected to be loaded by scripts/upload_cron.sh
+Runs on a flat videos directory (e.g. cron `1 * * * *`):
+  Phase 1 (embed):  .mp4+.srt pair → ffmpeg mov_text remux → .srt deleted
+  Phase 2 (upload): embedded .mp4 → Drive upload → MD5 verify → local delete
+
+Reads configuration from environment (expected to be loaded by scripts/deliver.sh
 from /etc/ros2-recorder/uploader.env).
 
 Required env:
@@ -65,8 +67,11 @@ def _build_upload_config(args: argparse.Namespace) -> uploader.UploadConfig:
         product=args.product or env_required("PRODUCT"),
         branch_id=args.branch_id or env_required("BRANCH_ID"),
         branch_name=args.branch_name or env_required("BRANCH_NAME"),
-        min_age_seconds=args.min_age_seconds,
-        delete_local=True,
+        # Upload phase uses min_age=0: embed phase already applied the safety
+        # filter, and embed changes mtime to now — using the same min_age would
+        # cause the just-embedded file to be skipped until the NEXT cron cycle.
+        min_age_seconds=0,
+        delete_local=not args.keep_local,
         verify_md5=True,
         dry_run=args.dry_run,
     )
@@ -82,6 +87,8 @@ def main() -> int:
                         help="Skip embed and run uploader in dry-run mode")
     parser.add_argument("--skip-embed", action="store_true",
                         help="Skip embed phase (e.g. for already-embedded content)")
+    parser.add_argument("--keep-local", action="store_true",
+                        help="Keep local files after verified upload (default: delete)")
     parser.add_argument("--log-level", default="INFO")
     # Overrides (env is primary source)
     parser.add_argument("--service-account")
@@ -104,7 +111,7 @@ def main() -> int:
 
     started = time.time()
     logging.info("=" * 64)
-    logging.info("upload_cron start  pid=%d  time=%s  videos_dir=%s",
+    logging.info("deliver start  pid=%d  time=%s  videos_dir=%s",
                  os.getpid(), datetime.now().isoformat(timespec="seconds"), videos_dir)
 
     # Phase 1: embed
@@ -143,7 +150,7 @@ def main() -> int:
 
     total = _fmt_duration(time.time() - started)
     exit_code = 0 if (embed_failed == 0 and not upload_error) else 1
-    logging.info("upload_cron end  exit=%d  total=%s  embed_failed=%d  uploaded=%d",
+    logging.info("deliver end  exit=%d  total=%s  embed_failed=%d  uploaded=%d",
                  exit_code, total, embed_failed, uploaded)
     logging.info("=" * 64)
     return exit_code

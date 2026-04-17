@@ -1,8 +1,10 @@
 #!/bin/bash
-# Cron wrapper: loads env file, invokes upload_cron.py via system python3.10.
+# Cron wrapper: loads env file, invokes deliver.py via system python3.10.
+#
+# Deliver: embed SRT → upload to Drive → MD5 verify → delete local
 #
 # Cron entry example (M5):
-#   1 * * * * /opt/ros2-recorder/scripts/upload_cron.sh >> /var/log/ros2-recorder/upload_cron.log 2>&1
+#   1 * * * * /opt/ros2-recorder/scripts/deliver.sh >> /var/log/ros2-recorder/deliver.log 2>&1
 #
 # Env file path can be overridden: UPLOADER_ENV_FILE=/path/to/uploader.env
 
@@ -23,4 +25,4 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT"
 
 PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.10}"
-exec "$PYTHON_BIN" "$SCRIPT_DIR/upload_cron.py" "$@"
+exec "$PYTHON_BIN" "$SCRIPT_DIR/deliver.py" "$@"

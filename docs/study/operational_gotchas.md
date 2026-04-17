@@ -98,7 +98,7 @@ Last updated: 2026-04-14
 ```
 
 **왜 중요:**
-- `scripts/embed_srt.py`, `scripts/upload_cron.py`, `uploader.collect_session_files` 가 모두 이 규칙을 독립적으로 준수해야 함. 한 곳이라도 위반하면 미완성 파일 업로드 등 사고.
+- `scripts/embed_srt.py`, `scripts/deliver.py`, `uploader.collect_session_files` 가 모두 이 규칙을 독립적으로 준수해야 함. 한 곳이라도 위반하면 미완성 파일 업로드 등 사고.
 - M2/M4 구현의 핵심 불변식 — 깨면 연쇄적으로 고장남.
 
 **대응:**

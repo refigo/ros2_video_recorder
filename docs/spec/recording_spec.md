@@ -24,7 +24,7 @@ Last updated: 2026-04-14
    - *Removed in M2:* CSV timestamps file (subsumed by SRT).
    - *Future (M3+):* `_metadata.json` for upload ledger, `_joints.parquet` for lerobot training — not yet implemented.
 4. **Upload Pipeline** — *M3 완료 (uploader + Drive routing), M4 완료 (embed + cron orchestrator)*
-   - `scripts/upload_cron.sh` (M5에서 crontab 등록): `.mp4`+`.srt` 쌍 감지 → `scripts/embed_srt.py`로 subtitle embed → `scripts/upload_cron.py`가 업로드 + MD5 검증 + 로컬 삭제
+   - `scripts/deliver.sh` (M5에서 crontab 등록): `.mp4`+`.srt` 쌍 감지 → `scripts/embed_srt.py`로 subtitle embed → `scripts/deliver.py`가 업로드 + MD5 검증 + 로컬 삭제
    - `min-age-seconds=30` + cron at `:01` = 60s buffer after segment switch. No file-collision risk with recorder.
    - Upload target folder: `{UPLOAD_ROOT_ID}/{PRODUCT}/{BRANCH_ID}({BRANCH_NAME})/{YYYY-MM}/{YYYYMMDD}/` (Shared Drive).
 5. **QoS Compatibility**
