@@ -21,7 +21,8 @@ KST = timezone(timedelta(hours=9))
 class CameraRecorder(Node):
     def __init__(self, topic_name='/camera/color/image_raw', output_file=None,
                  fps=30, use_ffmpeg=False, codec='mp4v', segment_duration=None,
-                 branch_id=None, video_label='topview_video'):
+                 branch_id=None, video_label='topview_video',
+                 crf=23, maxrate=None):
         super().__init__('camera_recorder')
 
         self.topic_name = topic_name
@@ -34,6 +35,8 @@ class CameraRecorder(Node):
         self.timezone_label = 'KST'
         self.branch_id = branch_id
         self.video_label = video_label
+        self.crf = str(crf)
+        self.maxrate = maxrate
 
         # Output directory
         self.output_dir = output_file if output_file else 'videos'
@@ -251,8 +254,12 @@ class CameraRecorder(Node):
             '-i', '-',  # Input from stdin
             '-c:v', 'libx264',
             '-preset', 'medium',
-            '-crf', '23',
+            '-crf', self.crf,
             '-pix_fmt', 'yuv420p',
+        ]
+        if self.maxrate:
+            ffmpeg_cmd += ['-maxrate', self.maxrate, '-bufsize', self.maxrate]
+        ffmpeg_cmd += [
             self._recording_path(self.output_file)
         ]
         
@@ -496,6 +503,10 @@ def main():
                        help='Branch identifier (e.g., BB003)')
     parser.add_argument('--video-label', default='topview_video',
                        help='Video label for filename (default: topview_video)')
+    parser.add_argument('--crf', type=int, default=23,
+                       help='CRF value for libx264 (default: 23, recommend 28-30 for ops)')
+    parser.add_argument('--maxrate', default=None,
+                       help='Max bitrate cap for libx264 VBR (e.g., 2M). Suppresses night-time bitrate spikes')
 
     args = parser.parse_args()
 
@@ -516,12 +527,19 @@ def main():
             segment_duration=segment_duration,
             branch_id=args.branch_id,
             video_label=args.video_label,
+            crf=args.crf,
+            maxrate=args.maxrate,
         )
         
         print(f"Starting camera recorder...")
         print(f"Topic: {args.topic}")
         print(f"Branch ID: {args.branch_id}")
         print(f"Video label: {args.video_label}")
+        if args.ffmpeg:
+            crf_info = f"CRF: {args.crf}"
+            if args.maxrate:
+                crf_info += f", maxrate: {args.maxrate}"
+            print(crf_info)
         if segment_duration:
             print(f"Segmentation: {segment_duration}s per segment")
         print(f"Press Ctrl+C to stop recording")

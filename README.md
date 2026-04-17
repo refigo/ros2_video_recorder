@@ -82,6 +82,9 @@ python3.10 camera_recorder.py --branch-id BB003 --topic /my_camera/image_raw --o
 # Gripper camera with different label (second recorder instance)
 python3.10 camera_recorder.py --branch-id BB003 --video-label gripper_video --topic /gripper/camera/image_raw --ffmpeg
 
+# Production: cap night-time bitrate spikes (recommended for 24h recording)
+python3.10 camera_recorder.py --branch-id BB003 --ffmpeg --crf 28 --maxrate 2M
+
 # Testing with short segments (overrides wall-clock alignment)
 python3.10 camera_recorder.py --branch-id TEST --segment 10 --ffmpeg
 
@@ -190,6 +193,8 @@ python3.10 uploader.py --file videos/BB003_20260414T140000+0900_topview_video.mp
 - `--fps, -f`: Output video FPS (default: 30)
 - `--ffmpeg`: Use FFmpeg (libx264) instead of OpenCV for encoding (recommended)
 - `--codec, -c`: Video codec - mp4v, xvid, h264 (OpenCV only, default: mp4v)
+- `--crf`: CRF value for libx264 quality (default: 23; recommend 28-30 for ops to reduce night-time file sizes)
+- `--maxrate`: Max bitrate cap (e.g., `2M`). Suppresses night-time sensor-noise bitrate spikes
 - `--segment, -s`: Fixed segment duration in seconds (overrides wall-clock alignment; use for testing)
 
 ## Backends

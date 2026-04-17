@@ -40,8 +40,8 @@ Last updated: 2026-04-17
 | 오전 (밝음) | ~55 kbps | ~24 MB | 압축 효율 회복 |
 
 **작업 내용 (후보 — 조합 가능):**
-- [ ] `--crf` CLI 인자 추가 (default: 23 → 운영은 28~30 권장)
-- [ ] `--maxrate` CLI 인자 추가 (예: `2M`) — VBR 상한 cap → 야간 피크 억제
+- [x] `--crf` CLI 인자 추가 (default: 23 → 운영은 28~30 권장)
+- [x] `--maxrate` CLI 인자 추가 (예: `2M`) — VBR 상한 cap → 야간 피크 억제
 - [ ] (리서치) ffmpeg pre-denoise 필터 (`-vf hqdn3d`) — noise 선제거 → 압축 효율 회복, CPU 부하 측정 필요
 - [ ] (리서치) 야간 FPS 감소 (예: 15fps) — 어두운 환경에서 프레임 수 절반 → 용량 절반, 품질 손실 미미
 - [ ] (리서치) RealSense 센서 gain 상한 설정 → 근본 noise 억제
