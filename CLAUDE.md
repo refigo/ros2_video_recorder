@@ -1,9 +1,19 @@
 # CLAUDE.md
 
-## 작업 완료 기준
-- 코드 변경 후 "완료"를 보고하기 전에 반드시 실제 동작 검증을 수행한다.
-- 검증은 타입 체크/린트/구문 확인이 아닌, 변경한 기능이 의도대로 작동하는지 실행하여 확인하는 것을 의미한다.
-- 실행 환경 제약(ROS2 등)으로 직접 검증이 불가능한 경우, 그 사실을 명시하고 가능한 범위의 검증 결과를 보고한다.
+## Completion Criteria
+- Always verify actual functionality before reporting a task as done.
+- Verification means running the changed feature and confirming it works as intended — not just type checks, linting, or syntax validation.
+- If direct verification is impossible due to environment constraints (e.g., ROS2), state that explicitly and report what was verified within the possible scope.
 
-## 검증 원칙
-- 지연 실행(cron, systemd timer, at 등)이나 실환경 배포 전에 반드시 동일 조건에서 수동 실행하여 정상 동작을 확인한다. 검증 없이 예약 등록하지 않는다.
+## Verification Principle
+- Before registering any deferred execution (cron, systemd timer, at, etc.) or deploying to a live environment, always manually run the same operation under equivalent conditions first. Never schedule without prior verification.
+
+## Documentation Structure
+- `docs/spec/` — System specifications and design decisions (recording, upload, deployment)
+- `docs/management/` — Milestones, backlog, and progress tracking
+- `docs/study/` — Technical study notes (video encoding, MP4 recovery, ROS2 environment)
+- `docs/history/` — Chronological implementation records per milestone/feature
+
+## Project Status
+- See `docs/management/progress.md` for current milestone status and next steps.
+- See `docs/management/upload_milestones.md` for full milestone definitions.
