@@ -121,7 +121,7 @@ Last updated: 2026-04-14
 **왜 중요:** Drive 경로가 `{UPLOAD_ROOT}/{PRODUCT}/{BRANCH_ID}({BRANCH_NAME})/.../`. 오타가 나면 새 폴더가 생성돼서 데이터가 분산됨.
 
 **대응:**
-- env template(`config/uploader.env.example`)과 배포 체크리스트에서 가능한 값을 명시
+- env template(`config/recorder.env.example`)과 배포 체크리스트에서 가능한 값을 명시
 - (미래) CLI/uploader에서 whitelist 검증 추가 고려
 
 ---
@@ -135,7 +135,7 @@ Last updated: 2026-04-14
 **왜 중요:** 단일 변수만 바꾸면 dev ↔ prod 전환. 새 SA 키 발급, 새 Drive 멤버 등록 불필요. 실수로 prod 폴더에 dev 테스트 데이터 쏟아지는 사고 방지를 위해 명확한 네이밍 + 분리된 루트 ID.
 
 **대응:**
-- 로봇별 `/etc/ros2-recorder/uploader.env`에서 `UPLOAD_ROOT_ID`만 환경에 맞게 설정
+- 로봇별 `/etc/ros2-recorder/recorder.env`에서 `UPLOAD_ROOT_ID`만 환경에 맞게 설정
 - Prod 루트 폴더(`robot-data-archive/`)는 운영 배포 직전까지 생성 안 해도 됨 (dev만 있어도 OK)
 
 ---

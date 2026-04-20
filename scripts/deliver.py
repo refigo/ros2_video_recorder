@@ -8,7 +8,7 @@ Runs on a flat videos directory (e.g. cron `1 * * * *`):
   Phase 2 (upload): embedded .mp4 → Drive upload → MD5 verify → local delete
 
 Reads configuration from environment (expected to be loaded by scripts/deliver.sh
-from /etc/ros2-recorder/uploader.env).
+from /etc/ros2-recorder/recorder.env).
 
 Required env:
   GOOGLE_APPLICATION_CREDENTIALS, UPLOAD_ROOT_ID, UPLOAD_SHARED_DRIVE_ID,

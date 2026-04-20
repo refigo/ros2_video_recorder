@@ -38,7 +38,7 @@ Upload recorded data (video segments, sidecars, and future joint logs) to Google
 1. `scripts/embed_srt.py` — `.mp4`+`.srt` 쌍 → `ffmpeg -c:v copy -c:s mov_text` 리먹스 → `.embedding.tmp` → atomic replace → `.srt` 삭제
 2. `scripts/deliver.py` — embed 완료된 `.mp4` 업로드 → MD5 검증 → 로컬 삭제. 이 단계에서 `transcode_for_drive`는 이미 H.264 + subtitle이므로 no-op pass-through.
 
-배포: `scripts/deliver.sh` 래퍼가 `/etc/ros2-recorder/uploader.env` 로드 + `/usr/bin/python3.10` 호출.
+배포: `scripts/deliver.sh` 래퍼가 `/etc/ros2-recorder/recorder.env` 로드 + `/usr/bin/python3.10` 호출.
 
 ## Authentication Strategy
 

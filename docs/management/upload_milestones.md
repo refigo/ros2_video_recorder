@@ -124,7 +124,7 @@ Last updated: 2026-04-14 (M4 완료: embed+cron 스크립트 + live E2E)
 **Tasks:**
 - [x] `scripts/embed_srt.py` — standalone embed 모듈 + CLI (atomic .embedding.tmp → os.replace → srt 삭제)
 - [x] `scripts/deliver.py` — embed + uploader 오케스트레이터, env 기반 설정
-- [x] `scripts/deliver.sh` — cron 래퍼 (`/etc/ros2-recorder/uploader.env` 로드 + `/usr/bin/python3.10` 호출)
+- [x] `scripts/deliver.sh` — cron 래퍼 (`/etc/ros2-recorder/recorder.env` 로드 + `/usr/bin/python3.10` 호출)
 - [x] Idempotent 복구: stale `.embedding.tmp` 정리, 이미 임베딩된 mp4 + orphan srt → srt만 삭제
 - [x] Per-file 실패 격리 (한 파일 실패가 나머지 업로드를 막지 않음)
 - [x] `min-age-seconds=30` 기본값 — segment 전환 후 60초 버퍼 보장
@@ -141,13 +141,17 @@ Last updated: 2026-04-14 (M4 완료: embed+cron 스크립트 + live E2E)
 **Goal:** 로봇에 배포 가능한 systemd service (녹화) + crontab (업로드) 작성
 **Deadline:** 2026-04-18 (금)
 
+**설계: .env vs YAML**
+- `.env` 채택: systemd `EnvironmentFile=`과 shell `source`가 네이티브 지원. 설정이 flat key=value이므로 YAML의 계층 구조 불필요. 추가 파서 의존성(yq 등) 없음.
+
 **Tasks:**
-- [ ] `ros2-camera-recorder.service`: 녹화 데몬 (systemd)
-- [ ] crontab 등록 스크립트: `deliver` 매시 :01 실행
-- [ ] 환경변수 설정 파일 (`/etc/ros2-recorder/config.env`)
-  - `BRANCH_ID`, `BRANCH_NAME`, `GOOGLE_APPLICATION_CREDENTIALS` 등
-- [ ] 설치/배포 스크립트 작성 (systemd + crontab 한번에 세팅)
-- [ ] 로그: recorder → journald, uploader → 로그 파일 또는 journald
+- [x] `systemd/ros2-camera-recorder.service`: 녹화 데몬 (systemd unit)
+- [x] `scripts/start_recorder.sh`: ROS2 env 로딩 + camera_recorder.py 실행 래퍼
+- [x] `scripts/install.sh`: 설치 스크립트 (systemd unit 복사 + 로그 디렉토리 + cron 등록, idempotent)
+- [x] `config/recorder.env.example`: 통합 환경변수 파일 (recorder + uploader, `uploader.env.example`에서 확장 + 리네임)
+- [x] `scripts/deliver.sh` env 경로 업데이트: `uploader.env` → `recorder.env`
+- [x] 로그: recorder → journald (`StandardOutput=journal`), uploader → `/var/log/ros2-recorder/deliver.log`
+- [ ] Live 검증: `start_recorder.sh` 수동 실행 → systemd 시작 → cron 업로드 확인
 
 **Acceptance:** `systemctl start ros2-camera-recorder` + cron 매시 :01 업로드 자동 실행
 

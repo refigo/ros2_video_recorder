@@ -31,8 +31,11 @@ echo "=== Night CRF test: $LABEL ===" | tee "$LOG_FILE"
 echo "Start: $(date --iso-8601=seconds)" | tee -a "$LOG_FILE"
 echo "Args: $*" | tee -a "$LOG_FILE"
 
-# Source ROS2 environment
+# Source ROS2 environment (disable nounset — setup.bash uses unset vars internally)
+set +u
 source /opt/ros/humble/setup.bash
+set -u
+export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-22}"
 
 # Start recorder in background
 $PYTHON_BIN "$REPO_ROOT/camera_recorder.py" \

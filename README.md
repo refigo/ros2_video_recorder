@@ -165,13 +165,20 @@ export BRANCH_NAME=성수본점
 python3.10 uploader.py --auth-mode service --session videos/ --delete-local --verify-md5
 ```
 
-**Hourly cron (M4):**
+**Systemd + cron (M5):**
 ```bash
-# One-shot: embed SRT into MP4 then upload
-set -a; source /etc/ros2-recorder/uploader.env; set +a
-scripts/deliver.sh --min-age-seconds 30
+# Install systemd service + cron entry
+sudo scripts/install.sh /opt/ros2-recorder
+
+# Manual test first (per verification principle):
+set -a && source /etc/ros2-recorder/recorder.env && set +a
+scripts/start_recorder.sh    # test recorder
+scripts/deliver.sh            # test upload pipeline
+
+# Then enable:
+sudo systemctl enable --now ros2-camera-recorder
 ```
-`scripts/deliver.sh` chains `scripts/embed_srt.py` (SRT → mov_text remux, atomic replace) and `scripts/deliver.py` (upload + MD5 verify + local delete). Designed for crontab `1 * * * *`.
+`scripts/start_recorder.sh` sources ROS2 env and runs `camera_recorder.py` with args from `recorder.env`. `scripts/deliver.sh` chains `scripts/embed_srt.py` (SRT → mov_text remux) and `scripts/deliver.py` (upload + MD5 verify + local delete). Cron runs at `:01` hourly.
 
 **Single-file manual upload:**
 ```bash

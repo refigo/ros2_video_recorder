@@ -40,24 +40,26 @@ Transfer the key file via a secure channel (ssh/scp over trusted network). Never
 
 ### 2. Install the env file
 
+> **Why .env, not YAML?** systemd `EnvironmentFile=` and shell `source` both load `.env` natively. Our config is flat key=value — YAML would add a parser dependency (`yq` or Python) for no structural benefit.
+
 ```bash
 sudo mkdir -p /etc/ros2-recorder
-sudo cp config/uploader.env.example /etc/ros2-recorder/uploader.env
-sudo ${EDITOR:-nano} /etc/ros2-recorder/uploader.env
+sudo cp config/recorder.env.example /etc/ros2-recorder/recorder.env
+sudo ${EDITOR:-nano} /etc/ros2-recorder/recorder.env
 # Replace:
 #   UPLOAD_SHARED_DRIVE_ID=...
 #   UPLOAD_ROOT_ID=...    ← prod for production robots, dev for lab/testing
 #   PRODUCT=barisbrew     ← robot product this fleet belongs to
 #   BRANCH_ID=BBxxx       ← this robot's branch code
 #   BRANCH_NAME=...       ← this robot's branch display name
-sudo chmod 640 /etc/ros2-recorder/uploader.env
+sudo chmod 640 /etc/ros2-recorder/recorder.env
 ```
 
 ### 3. Smoke-test Drive access from this robot
 
 ```bash
 set -a
-source /etc/ros2-recorder/uploader.env
+source /etc/ros2-recorder/recorder.env
 set +a
 cd ~/git_repo_mine/ros2_video_recorder
 .venv/bin/python scripts/verify_shared_drive.py
@@ -65,24 +67,36 @@ cd ~/git_repo_mine/ros2_video_recorder
 
 All 6 steps must PASS. If Step 2 fails the robot cannot see the Shared Drive (check network + SA membership). If Step 3 fails we'll need to discuss a folder-name fallback (ASCII only).
 
-### 4. Install recorder + uploader services (M5 scope — not yet implemented)
-
-- [ ] systemd unit for recorder — uses `--branch-id $BRANCH_ID --video-label topview_video`
-- [ ] crontab entry for uploader (**M4 script ready**):
-      ```
-      1 * * * * /opt/ros2-recorder/scripts/deliver.sh >> /var/log/ros2-recorder/deliver.log 2>&1
-      ```
-- [ ] verify: hourly segment appears in Drive under `<UPLOAD_ROOT>/<PRODUCT>/<BRANCH_ID>(<BRANCH_NAME>)/YYYY-MM/YYYYMMDD/`
-
-### Manual cron run (pre-M5 smoke check)
+### 4. Install recorder + uploader services
 
 ```bash
-set -a; source /etc/ros2-recorder/uploader.env; set +a
-cd ~/git_repo_mine/ros2_video_recorder
-.venv/bin/python scripts/deliver.py --videos-dir "$VIDEOS_DIR" --min-age-seconds 0
+# From the repo root:
+sudo scripts/install.sh /opt/ros2-recorder
 ```
 
-Expected: embed phase processes pending pairs, upload phase uploads + verifies + deletes local. Re-run prints "no files" + exit 0.
+This installs:
+- systemd unit `ros2-camera-recorder.service` (recorder daemon)
+- Cron entry: `deliver.sh` at `:01` every hour (embed + upload pipeline)
+- Log directory `/var/log/ros2-recorder/`
+
+The install script does NOT enable or start the service. Test manually first:
+
+```bash
+# Test recorder (Ctrl+C to stop):
+set -a && source /etc/ros2-recorder/recorder.env && set +a
+scripts/start_recorder.sh
+
+# Test upload pipeline:
+scripts/deliver.sh --min-age-seconds 0
+```
+
+Then enable:
+```bash
+sudo systemctl enable --now ros2-camera-recorder
+```
+
+- [ ] verify: `journalctl -u ros2-camera-recorder -f` shows recording output
+- [ ] verify: hourly segment appears in Drive under `<UPLOAD_ROOT>/<PRODUCT>/<BRANCH_ID>(<BRANCH_NAME>)/YYYY-MM/YYYYMMDD/`
 
 ## Rollback
 

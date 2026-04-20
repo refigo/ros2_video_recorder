@@ -1,0 +1,17 @@
+[Unit]
+Description=ROS2 Camera Recorder (topview RGB)
+After=network.target
+
+[Service]
+Type=simple
+EnvironmentFile=/etc/ros2-recorder/recorder.env
+ExecStart=/opt/ros2-recorder/scripts/start_recorder.sh
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=ros2-camera-recorder
+User=refi
+
+[Install]
+WantedBy=multi-user.target
