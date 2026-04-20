@@ -241,6 +241,15 @@ class CameraRecorder(Node):
         if not self.video_writer.isOpened():
             raise RuntimeError("Failed to open video writer")
             
+    @staticmethod
+    def _double_rate(rate_str: str) -> str:
+        """Double an ffmpeg rate string (e.g. '2M' → '4M', '1500k' → '3000k')."""
+        import re
+        m = re.match(r'^(\d+(?:\.\d+)?)([kKmMgG]?)$', rate_str)
+        if not m:
+            return rate_str
+        return f"{float(m.group(1)) * 2:g}{m.group(2)}"
+
     def initialize_ffmpeg(self):
         """Initialize FFmpeg process for video encoding"""
         ffmpeg_cmd = [
@@ -258,7 +267,7 @@ class CameraRecorder(Node):
             '-pix_fmt', 'yuv420p',
         ]
         if self.maxrate:
-            ffmpeg_cmd += ['-maxrate', self.maxrate, '-bufsize', self.maxrate]
+            ffmpeg_cmd += ['-maxrate', self.maxrate, '-bufsize', self._double_rate(self.maxrate)]
         ffmpeg_cmd += [
             self._recording_path(self.output_file)
         ]
