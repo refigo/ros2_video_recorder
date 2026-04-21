@@ -1,6 +1,6 @@
 # Backlog
 
-Last updated: 2026-04-17
+Last updated: 2026-04-21
 
 이 문서는 즉시 실행하지 않지만 추후 필요한 작업을 관리한다.
 우선순위와 의존성이 확정되면 `upload_milestones.md`의 마일스톤으로 승격한다.
@@ -128,19 +128,23 @@ H.264 원본에 자막만 임베딩하는 경우(`-c:v copy`)에도 faststart가
 
 ## 인프라 / 마이그레이션
 
-### BL-08: GitHub 리포지토리 마이그레이션 (우선순위: 중간)
+### BL-08: 사내 레포(`xyz-robot-data-collector`)로 마이그레이션 (우선순위: 중간)
 
-**배경:** 현재 `ros2_video_recorder`는 개인 리포지토리. xyzcorp 조직에 `xyz-data-collector`로 새 리포 생성하여
+**배경:** 현재 `ros2_video_recorder`는 개인 리포지토리. xyzcorp 조직에 이미 빈 리포가 준비됨:
+- Repo: `xyz-robot-data-collector` ("xrdc" — 이미 venv 이름 `.venv_xrdc`로 사용 중)
+- URL: https://github.com/xyzcorpsoftware/xyz-robot-data-collector.git
+
 비디오 외 다양한 데이터(joints, audio 등) 수집까지 확장 가능한 구조로 마이그레이션 필요.
 "collector" = recorder + uploader 를 포괄하는 네이밍.
 
 **작업 내용:**
-- [ ] xyzcorp GitHub org에 `xyz-data-collector` 리포 생성
-- [ ] 기존 코드 + history 마이그레이션
-- [ ] 패키지 구조 정리 (recorder, uploader 모듈 분리)
-- [ ] README, CI 세팅
+- [ ] 기존 코드 + git history 마이그레이션 (remote 교체 or mirror push)
+- [ ] 패키지/디렉토리 구조 정리 (recorder, uploader 모듈 분리 검토)
+- [ ] 민감 정보 사전 검증 (`.env`, `keys/`, dev Drive ID 등이 history에 없는지)
+- [ ] README, CI 세팅 (최소 lint + pytest 골격)
+- [ ] 내부 deploy 스크립트의 repo 경로/URL 참조 업데이트
 
-**선행 조건:** 이번 주 안정화 마일스톤 (M2~M6) 완료 후 진행
+**선행 조건:** 이번 주 안정화 마일스톤 (M2~M6) 완료 후 진행. robot PC E2E 검증 이후가 안전.
 
 ---
 

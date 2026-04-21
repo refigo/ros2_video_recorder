@@ -25,18 +25,19 @@ source /opt/ros/humble/setup.bash
 set -u
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-22}"
 
-PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.10}"
+cd "$REPO_ROOT"
+PYTHON_BIN="${PYTHON_BIN:-$REPO_ROOT/.venv_xrdc/bin/python}"
 
 ARGS=(
     --branch-id "${BRANCH_ID:?BRANCH_ID not set}"
     --video-label "${VIDEO_LABEL:-topview_video}"
     --ffmpeg
     --crf "${CRF:-28}"
-    --segment "${SEGMENT:-3600}"
     --topic "${TOPIC:-/camera/color/image_raw}"
     --fps "${FPS:-30}"
 )
 
+[ -n "${SEGMENT:-}" ] && ARGS+=(--segment "$SEGMENT")
 [ -n "${MAXRATE:-}" ] && ARGS+=(--maxrate "$MAXRATE")
 [ -n "${VIDEOS_DIR:-}" ] && ARGS+=(--output-dir "$VIDEOS_DIR")
 

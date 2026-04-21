@@ -33,5 +33,5 @@ fi
 
 cd "$REPO_ROOT"
 
-PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.10}"
+PYTHON_BIN="${PYTHON_BIN:-$REPO_ROOT/.venv_xrdc/bin/python}"
 exec "$PYTHON_BIN" "$SCRIPT_DIR/deliver.py" "$@"

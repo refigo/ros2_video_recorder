@@ -21,7 +21,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 cd "$REPO_ROOT"
 
-PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3.10}"
+PYTHON_BIN="${PYTHON_BIN:-$REPO_ROOT/.venv_xrdc/bin/python}"
 LOG_DIR="$REPO_ROOT/logs"
 mkdir -p "$LOG_DIR"
 

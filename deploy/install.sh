@@ -31,7 +31,18 @@ else
 fi
 echo "Env file: $ENV_FILE"
 
-# --- 2. Install systemd user unit ---
+# --- 2. Setup venv ---
+VENV_DIR="$REPO_ROOT/.venv_xrdc"
+if [ ! -f "$VENV_DIR/bin/python" ]; then
+    echo "Creating venv at $VENV_DIR ..."
+    uv venv --python /usr/bin/python3.10 "$VENV_DIR"
+    uv pip install --python "$VENV_DIR/bin/python" -r "$REPO_ROOT/requirements.txt"
+    echo "[OK] venv created + deps installed"
+else
+    echo "[SKIP] venv already exists: $VENV_DIR"
+fi
+
+# --- 3. Install systemd user unit ---
 mkdir -p "$UNIT_DIR"
 
 cat > "$UNIT_DIR/${SERVICE_NAME}.service" <<EOF
@@ -56,11 +67,11 @@ EOF
 systemctl --user daemon-reload
 echo "[OK] systemd user unit installed: $UNIT_DIR/${SERVICE_NAME}.service"
 
-# --- 3. Log directory ---
+# --- 4. Log directory ---
 mkdir -p "$LOG_DIR"
 echo "[OK] log directory: $LOG_DIR"
 
-# --- 4. Cron entry (disabled — start.sh enables it) ---
+# --- 5. Cron entry (disabled — start.sh enables it) ---
 CRON_MARKER="# ros2-recorder-deliver"
 CRON_CMD="1 * * * * RECORDER_ENV_FILE=${ENV_FILE} ${REPO_ROOT}/scripts/deliver.sh >> ${LOG_DIR}/deliver.log 2>&1 ${CRON_MARKER}"
 EXISTING_CRON=$(crontab -l 2>/dev/null || true)
@@ -74,7 +85,7 @@ else
     echo "[OK] cron entry prepared (currently disabled — deploy/start.sh enables it)"
 fi
 
-# --- 5. Enable linger (service runs even when logged out) ---
+# --- 6. Enable linger (service runs even when logged out) ---
 if command -v loginctl &>/dev/null; then
     loginctl enable-linger "$(whoami)" 2>/dev/null || true
     echo "[OK] linger enabled for $(whoami)"

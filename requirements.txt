@@ -1,17 +1,16 @@
-# ROS2 packages (installed via system packages, not pip):
-# - rclpy (from ros-humble-rclpy)
-# - sensor_msgs (from ros-humble-sensor-msgs)
-# - cv_bridge (from ros-humble-cv-bridge)
+# xyz-robot-data-collector (xrdc) dependencies
+#
+# Setup:
+#   uv venv --python /usr/bin/python3.10 .venv_xrdc
+#   uv pip install -r requirements.txt
+#
+# ROS2 packages (rclpy, sensor_msgs, cv_bridge) come from /opt/ros/humble via
+# PYTHONPATH — sourced by start_recorder.sh, NOT installed in the venv.
+# numpy<2 is required for ROS2 Humble compatibility.
 
-# Python packages that may need to be installed via pip:
-numpy>=1.20.0
-# opencv-python>=4.5.0  # Usually available with ROS2 cv_bridge
-
-# Google Drive uploader dependencies:
-google-api-python-client>=2.120.0
-google-auth>=2.22.0
-google-auth-httplib2>=0.2.0
-google-auth-oauthlib>=1.2.0
-
-# Note: Make sure to source ROS2 environment:
-# source /opt/ros/humble/setup.bash
+numpy<2
+opencv-python-headless
+google-api-python-client
+google-auth
+google-auth-oauthlib
+google-auth-httplib2
